@@ -1,0 +1,34 @@
+{
+  "name": "mpp-edge-finder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server/index.ts",
+    "dev:client": "vite --host 0.0.0.0",
+    "build": "tsc && vite build",
+    "start": "node dist/src/server/index.js",
+    "mpp:login-vnc": "./scripts/mpp-login-vnc.sh",
+    "browsers:install": "playwright install chromium",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/static": "^9.1.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "fastify": "^5.2.1",
+    "playwright": "^1.49.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsx": "^4.19.2",
+    "vite": "^6.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
+  }
+}

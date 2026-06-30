@@ -1,0 +1,13 @@
+services:
+  mpp-login:
+    build: .
+    container_name: mpp-edge-finder-login
+    env_file:
+      - .env
+    command: ["npm", "run", "mpp:login-vnc"]
+    ports:
+      - "6080:6080"
+    volumes:
+      - ./data:/data
+    environment:
+      MPP_PROFILE_DIR: /data/mpp-chrome-profile
