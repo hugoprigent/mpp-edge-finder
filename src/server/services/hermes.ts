@@ -5,7 +5,7 @@ import { formatRecommendationMessage, sendTelegram } from "./notifications.js";
 export function getHermesManifest(baseUrl: string) {
   return {
     name: "mpp-edge-finder",
-    description: "Assistant MPP: recommandations de scores, état système et briefing notification.",
+    description: "Assistant MPP: recommandations de scores, stratégie EV/chase, état système et briefing notification.",
     safety: {
       canPlaceBets: false,
       canModifyMpp: false,
@@ -17,7 +17,7 @@ export function getHermesManifest(baseUrl: string) {
         method: "GET",
         url: `${baseUrl}/api/hermes/tools/get_next_recommendations?limit=8`,
         params: { limit: "optional number, default 8" },
-        description: "Retourne les prochaines recommandations classées par horaire et exploitabilité."
+        description: "Retourne les prochaines recommandations classées par score stratégie et exploitabilité."
       },
       {
         name: "get_system_health",
@@ -44,7 +44,7 @@ export function getHermesManifest(baseUrl: string) {
     operatorPolicy: [
       "Ne jamais écrire automatiquement de prono dans MPP.",
       "Alerter si MPP ou Polymarket n'a pas été synchronisé récemment.",
-      "Toujours présenter la consigne play.instruction, EV, edge, score exact et X2 quand disponibles."
+      "Toujours présenter la consigne play.instruction, stratégie, score stratégie, EV, edge EV, score exact et X2 quand disponibles."
     ]
   };
 }

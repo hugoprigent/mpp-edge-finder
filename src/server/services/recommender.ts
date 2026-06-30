@@ -1,5 +1,18 @@
+import { config } from "../config.js";
 import { clamp, round } from "../utils.js";
-import type { Confidence, MarketSnapshot, Match, MppSnapshot, Outcome, PlayInstruction, Recommendation, ScorePick, TotalMarket } from "../../shared/types.js";
+import type {
+  Confidence,
+  MarketSnapshot,
+  Match,
+  MppSnapshot,
+  Outcome,
+  OutcomeAnalysis,
+  PlayInstruction,
+  Recommendation,
+  ScorePick,
+  StrategyMode,
+  TotalMarket
+} from "../../shared/types.js";
 
 type LatestData = {
   matches: Match[];
@@ -8,6 +21,14 @@ type LatestData = {
 };
 
 const outcomes: Outcome[] = ["home", "draw", "away"];
+
+type OutcomeCandidate = {
+  outcome: Outcome;
+  analysis: OutcomeAnalysis;
+  score: ScorePick;
+  totalEv: number;
+  strategyScore: number;
+};
 
 export function buildRecommendations(data: LatestData, windowHours = 96): Recommendation[] {
   const now = Date.now();
@@ -22,7 +43,7 @@ export function buildRecommendations(data: LatestData, windowHours = 96): Recomm
   const x2Candidates = recs
     .filter((rec) => rec.outcome !== "needs-data" && rec.confidence !== "missing-data")
     .slice()
-    .sort((a, b) => b.totalEv - a.totalEv);
+    .sort((a, b) => b.strategyScore - a.strategyScore || b.totalEv - a.totalEv);
   x2Candidates.forEach((rec, index) => {
     rec.x2Rank = index + 1;
     rec.x2Candidate = index === 0;
@@ -39,7 +60,7 @@ function sortRecommendations(a: Recommendation, b: Recommendation): number {
   const bMissing = b.outcome === "needs-data";
   if (aMissing !== bMissing) return aMissing ? 1 : -1;
   if (!aMissing && !bMissing) {
-    return b.edge - a.edge || b.totalEv - a.totalEv || kickoffSort(a, b);
+    return b.strategyScore - a.strategyScore || b.edge - a.edge || b.totalEv - a.totalEv || kickoffSort(a, b);
   }
   return kickoffSort(a, b);
 }
@@ -50,6 +71,7 @@ function kickoffSort(a: Recommendation, b: Recommendation): number {
 
 export function recommendMatch(match: Match, mpp?: MppSnapshot, market?: MarketSnapshot): Recommendation {
   const emptyEvs = { home: 0, draw: 0, away: 0 };
+  const strategy = config.mppStrategyMode;
   if (!mpp || !market) {
     return {
       match,
@@ -58,8 +80,15 @@ export function recommendMatch(match: Match, mpp?: MppSnapshot, market?: MarketS
       outcome: "needs-data",
       play: buildPlayInstruction(match, "needs-data"),
       outcomeEvs: emptyEvs,
+      outcomeAnalysis: emptyOutcomeAnalysis(),
       totalEv: 0,
       edge: 0,
+      evEdge: 0,
+      strategy,
+      strategyScore: 0,
+      strategyEdge: 0,
+      leverage: 0,
+      crowdEdge: 0,
       confidence: "missing-data",
       x2Candidate: false,
       x2Rank: null,
@@ -72,39 +101,60 @@ export function recommendMatch(match: Match, mpp?: MppSnapshot, market?: MarketS
 
   const probabilities = { home: market.pHome, draw: market.pDraw, away: market.pAway };
   const points = { home: mpp.pointsHome, draw: mpp.pointsDraw, away: mpp.pointsAway };
+  const crowds = { home: mpp.crowdHomePct, draw: mpp.crowdDrawPct, away: mpp.crowdAwayPct };
+  const analysis = buildOutcomeAnalysis(probabilities, points, crowds, strategy);
+  const candidates = outcomes
+    .map((outcome): OutcomeCandidate => {
+      const score = pickScore(outcome, market, strategy);
+      const totalEv = analysis[outcome].expectedPoints + score.expectedBonusPoints;
+      return {
+        outcome,
+        analysis: analysis[outcome],
+        score,
+        totalEv,
+        strategyScore: analysis[outcome].attackScore + score.objective
+      };
+    })
+    .sort((a, b) => b.strategyScore - a.strategyScore);
+  const rankedByEv = candidates.slice().sort((a, b) => b.totalEv - a.totalEv);
   const outcomeEvs = {
-    home: probabilities.home * points.home,
-    draw: probabilities.draw * points.draw,
-    away: probabilities.away * points.away
+    home: analysis.home.expectedPoints,
+    draw: analysis.draw.expectedPoints,
+    away: analysis.away.expectedPoints
   };
-  const ranked = outcomes
-    .map((outcome) => ({ outcome, ev: outcomeEvs[outcome] }))
-    .sort((a, b) => b.ev - a.ev);
-  const best = ranked[0];
-  const second = ranked[1];
-  const score = pickScore(best.outcome, market, points[best.outcome]);
-  const totalEv = best.ev + (score?.expectedBonusPoints ?? 0);
-  const edge = best.ev - second.ev;
-  const confidence = adjustedConfidence(confidenceFor(edge, market, mpp), match);
+  const outputAnalysis = roundOutcomeAnalysis(analysis);
+  const best = candidates[0];
+  const second = candidates[1];
+  const evAlternative = rankedByEv.find((candidate) => candidate.outcome !== best.outcome) ?? second;
+  const strategyEdge = best.strategyScore - second.strategyScore;
+  const evEdge = best.totalEv - evAlternative.totalEv;
+  const confidence = adjustedConfidence(adjustStrategyConfidence(confidenceFor(strategyEdge, market, mpp), strategy, evEdge), match);
 
   return {
     match,
     mpp,
     market,
     outcome: best.outcome,
-    score,
-    play: buildPlayInstruction(match, best.outcome, score),
+    score: best.score,
+    play: buildPlayInstruction(match, best.outcome, best.score),
     outcomeEvs: {
       home: round(outcomeEvs.home, 2),
       draw: round(outcomeEvs.draw, 2),
       away: round(outcomeEvs.away, 2)
     },
-    totalEv: round(totalEv, 2),
-    edge: round(edge, 2),
+    outcomeAnalysis: outputAnalysis,
+    totalEv: round(best.totalEv, 2),
+    edge: round(strategyEdge, 2),
+    evEdge: round(evEdge, 2),
+    strategy,
+    strategyScore: round(best.strategyScore, 2),
+    strategyEdge: round(strategyEdge, 2),
+    leverage: round(best.analysis.leverage, 2),
+    crowdEdge: round(best.analysis.crowdEdge, 4),
     confidence,
     x2Candidate: false,
     x2Rank: null,
-    reasons: buildReasons(match, best.outcome, probabilities, points, edge, score)
+    reasons: buildReasons(match, best, probabilities, points, strategyEdge, evEdge, strategy)
   };
 }
 
@@ -139,6 +189,12 @@ function adjustedConfidence(confidence: Confidence, match: Match): Confidence {
   return "low";
 }
 
+function adjustStrategyConfidence(confidence: Confidence, strategy: StrategyMode, evEdge: number): Confidence {
+  if (strategy === "ev" || confidence === "missing-data" || evEdge >= 0) return confidence;
+  if (confidence === "high") return "medium";
+  return "low";
+}
+
 function confidenceFor(edge: number, market: MarketSnapshot, mpp: MppSnapshot): Confidence {
   const marketAgeHours = (Date.now() - new Date(market.fetchedAt).getTime()) / 36e5;
   const mppAgeHours = (Date.now() - new Date(mpp.scrapedAt).getTime()) / 36e5;
@@ -149,29 +205,109 @@ function confidenceFor(edge: number, market: MarketSnapshot, mpp: MppSnapshot): 
 
 function buildReasons(
   match: Match,
-  outcome: Outcome,
+  best: OutcomeCandidate,
   probabilities: Record<Outcome, number>,
   points: Record<Outcome, number>,
-  edge: number,
-  score?: ScorePick
+  strategyEdge: number,
+  evEdge: number,
+  strategy: StrategyMode
 ): string[] {
+  const outcome = best.outcome;
   const label = outcome === "home" ? "domicile" : outcome === "draw" ? "nul" : "extérieur";
+  const crowdPct = best.analysis.crowdPct;
+  const crowdEdgePct = best.analysis.crowdEdge * 100;
   const reasons = [
     `Meilleure espérance sur ${label}: ${(probabilities[outcome] * 100).toFixed(1)}% x ${points[outcome]} pts.`,
-    `Écart vs deuxième choix: ${edge.toFixed(1)} pts.`
+    `Score stratégie: ${best.strategyScore.toFixed(1)}; écart objectif vs deuxième: ${strategyEdge.toFixed(1)} pts; écart EV: ${evEdge.toFixed(1)} pts.`,
+    `Foule MPP sur cette issue: ${crowdPct.toFixed(1)}%; edge foule: ${crowdEdgePct >= 0 ? "+" : ""}${crowdEdgePct.toFixed(1)} pts de proba.`
   ];
-  if (score) {
-    reasons.push(`Score exact suggéré: ${score.home}-${score.away}, bonus rareté estimé +${score.estimatedBonus}.`);
+  if (strategy === "chase") {
+    reasons.push("Mode chase: bonus aux issues peu jouées par la foule quand la probabilité marché reste défendable.");
   }
+  reasons.push(
+    `Score exact suggéré: ${best.score.home}-${best.score.away}, bonus rareté estimé +${best.score.estimatedBonus}, EV bonus +${best.score.expectedBonusPoints.toFixed(1)}.`
+  );
   if (match.scope === "120min") {
     reasons.push("Phase à élimination directe: MPP compte 120 min hors tirs au but, confiance réduite si le marché externe est en 90 min.");
   }
   return reasons;
 }
 
-function pickScore(outcome: Outcome, market: MarketSnapshot, resultPoints: number): ScorePick {
+function buildOutcomeAnalysis(
+  probabilities: Record<Outcome, number>,
+  points: Record<Outcome, number>,
+  crowds: Record<Outcome, number>,
+  strategy: StrategyMode
+): Record<Outcome, OutcomeAnalysis> {
+  return Object.fromEntries(
+    outcomes.map((outcome) => {
+      const probability = clamp(probabilities[outcome], 0, 1);
+      const crowdShare = clamp(crowds[outcome] / 100, 0, 1);
+      const expectedPoints = probability * points[outcome];
+      const leverage = points[outcome] * Math.sqrt(probability) * (1 - crowdShare);
+      const crowdEdge = probability - crowdShare;
+      const attackScore = strategy === "ev" ? expectedPoints : chaseAttackScore(expectedPoints, leverage, crowdEdge, probability, points[outcome]);
+      return [
+        outcome,
+        {
+          probability,
+          points: points[outcome],
+          crowdPct: crowds[outcome],
+          expectedPoints,
+          leverage,
+          crowdEdge,
+          attackScore
+        }
+      ];
+    })
+  ) as Record<Outcome, OutcomeAnalysis>;
+}
+
+function chaseAttackScore(expectedPoints: number, leverage: number, crowdEdge: number, probability: number, points: number): number {
+  const positiveCrowdEdge = Math.max(0, crowdEdge) * points * config.mppChasePositiveCrowdEdgeWeight;
+  const negativeCrowdEdge = Math.max(0, -crowdEdge) * points * config.mppChaseNegativeCrowdEdgeWeight;
+  const lotteryPenalty = Math.max(0, config.mppChaseMinUsefulProbability - probability) * points * config.mppChaseLotteryPenaltyWeight;
+  return expectedPoints + config.mppChaseLeverageWeight * leverage + positiveCrowdEdge - negativeCrowdEdge - lotteryPenalty;
+}
+
+function roundOutcomeAnalysis(analysis: Record<Outcome, OutcomeAnalysis>): Record<Outcome, OutcomeAnalysis> {
+  return Object.fromEntries(
+    outcomes.map((outcome) => [
+      outcome,
+      {
+        probability: round(analysis[outcome].probability, 4),
+        points: analysis[outcome].points,
+        crowdPct: round(analysis[outcome].crowdPct, 2),
+        expectedPoints: round(analysis[outcome].expectedPoints, 2),
+        leverage: round(analysis[outcome].leverage, 2),
+        crowdEdge: round(analysis[outcome].crowdEdge, 4),
+        attackScore: round(analysis[outcome].attackScore, 2)
+      }
+    ])
+  ) as Record<Outcome, OutcomeAnalysis>;
+}
+
+function emptyOutcomeAnalysis(): Record<Outcome, OutcomeAnalysis> {
+  return Object.fromEntries(
+    outcomes.map((outcome) => [
+      outcome,
+      {
+        probability: 0,
+        points: 0,
+        crowdPct: 0,
+        expectedPoints: 0,
+        leverage: 0,
+        crowdEdge: 0,
+        attackScore: 0
+      }
+    ])
+  ) as Record<Outcome, OutcomeAnalysis>;
+}
+
+function pickScore(outcome: Outcome, market: MarketSnapshot, strategy: StrategyMode): ScorePick {
   const lambdas = fitLambdas(market);
   let best: ScorePick | null = null;
+  let bestObjective = -Infinity;
   for (let home = 0; home <= 5; home += 1) {
     for (let away = 0; away <= 5; away += 1) {
       if (!scoreMatchesOutcome(home, away, outcome)) continue;
@@ -180,19 +316,35 @@ function pickScore(outcome: Outcome, market: MarketSnapshot, resultPoints: numbe
       const popularityProxy = outcomeProb > 0 ? probability / outcomeProb : probability;
       const estimatedBonus = rarityBonus(popularityProxy);
       const expectedBonusPoints = probability * estimatedBonus;
+      const objective = scoreObjective(strategy, probability, estimatedBonus, popularityProxy, expectedBonusPoints);
       const score: ScorePick = {
         home,
         away,
         probability: round(probability, 4),
         estimatedBonus,
-        expectedBonusPoints: round(expectedBonusPoints, 2)
+        expectedBonusPoints: round(expectedBonusPoints, 2),
+        objective: round(objective, 2)
       };
-      const scoreEv = probability * (resultPoints + estimatedBonus);
-      const bestEv = best ? best.probability * (resultPoints + best.estimatedBonus) : -Infinity;
-      if (scoreEv > bestEv) best = score;
+      if (objective > bestObjective + 1e-9 || (Math.abs(objective - bestObjective) <= 1e-9 && best && estimatedBonus > best.estimatedBonus)) {
+        best = score;
+        bestObjective = objective;
+      }
     }
   }
-  return best ?? { home: outcome === "away" ? 0 : 1, away: outcome === "home" ? 0 : 1, probability: 0, estimatedBonus: 20, expectedBonusPoints: 0 };
+  return best ?? {
+    home: outcome === "away" ? 0 : 1,
+    away: outcome === "home" ? 0 : 1,
+    probability: 0,
+    estimatedBonus: 20,
+    expectedBonusPoints: 0,
+    objective: 0
+  };
+}
+
+function scoreObjective(strategy: StrategyMode, probability: number, estimatedBonus: number, popularityProxy: number, expectedBonusPoints: number): number {
+  if (strategy === "ev") return expectedBonusPoints;
+  const rarityLeverage = Math.sqrt(probability) * estimatedBonus * (1 - clamp(popularityProxy, 0, 1));
+  return expectedBonusPoints + config.mppChaseScoreBonusWeight * rarityLeverage;
 }
 
 function fitLambdas(market: MarketSnapshot): { home: number; away: number } {

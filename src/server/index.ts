@@ -3,10 +3,12 @@ import path from "node:path";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import { isAuthenticated, loginCookie, logoutCookie, validPin } from "./auth.js";
 import { config } from "./config.js";
 import { Store } from "./store.js";
 import { buildRecommendations } from "./services/recommender.js";
 import { getHermesHealth, getHermesManifest, getHermesRecommendations, sendManualBriefing } from "./services/hermes.js";
+import { applyMppRecommendation } from "./services/mppAutoPlayer.js";
 import { scrapeMpp, syncPolymarket, importMppText } from "./services/sync.js";
 import { formatRecommendationMessage, formatRecommendationPlainMessage, sendNtfy, sendTelegram } from "./services/notifications.js";
 import { startSchedulers } from "./services/scheduler.js";
@@ -16,6 +18,13 @@ const store = new Store();
 const sseClients = new Set<NodeJS.WritableStream>();
 
 await app.register(cors, { origin: true });
+
+app.addHook("preHandler", async (request, reply) => {
+  const url = request.raw.url ?? "";
+  const publicApi = url.startsWith("/api/healthz") || url.startsWith("/api/auth/");
+  if (!url.startsWith("/api") || publicApi || isAuthenticated(request.headers)) return;
+  return reply.code(401).send({ error: "PIN requis" });
+});
 
 const clientDist = path.resolve(process.cwd(), "dist/client");
 if (fs.existsSync(clientDist)) {
@@ -41,6 +50,22 @@ function broadcast(event: string, payload: unknown): void {
   const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
   for (const client of sseClients) client.write(frame);
 }
+
+app.get("/api/auth/status", async (request) => ({ authenticated: isAuthenticated(request.headers) }));
+
+app.post<{ Body: { pin?: string } }>("/api/auth/login", async (request, reply) => {
+  if (!validPin(request.body?.pin)) {
+    reply.code(401);
+    return { ok: false, message: "Code invalide." };
+  }
+  reply.header("set-cookie", loginCookie());
+  return { ok: true, message: "Session ouverte." };
+});
+
+app.post("/api/auth/logout", async (_request, reply) => {
+  reply.header("set-cookie", logoutCookie());
+  return { ok: true, message: "Session fermée." };
+});
 
 app.get("/api/status", async () => store.status());
 
@@ -108,6 +133,18 @@ app.post<{ Body: { matchId?: string } }>("/api/notifications/test", async (reque
   const telegram = await sendTelegram(text);
   const ntfy = await sendNtfy(formatRecommendationPlainMessage(rec), `${rec.match.homeTeam} - ${rec.match.awayTeam}`);
   return { ok: true, sent: telegram || ntfy, channels: { telegram, ntfy }, text };
+});
+
+app.post<{ Body: { matchId?: string; dryRun?: boolean } }>("/api/automation/mpp/apply", async (request, reply) => {
+  const recs = recommendations(168).filter((item) => item.outcome !== "needs-data");
+  const rec = request.body?.matchId ? recs.find((item) => item.match.id === request.body?.matchId) : recs[0];
+  if (!rec) {
+    reply.code(404);
+    return { ok: false, message: "Aucune recommandation exploitable." };
+  }
+  const result = await applyMppRecommendation(rec, request.body?.dryRun ?? true);
+  broadcast("automation", result);
+  return result;
 });
 
 app.get("/api/events", async (_request, reply) => {

@@ -1,6 +1,6 @@
 # MPP Edge Finder
 
-Assistant de décision pour Mon Petit Prono: il combine les points MPP avec les probabilités publiques Polymarket pour proposer l'issue et le score exact avec la meilleure espérance de points.
+Assistant de décision pour Mon Petit Prono: il combine les points MPP, la foule MPP et les probabilités publiques Polymarket pour proposer l'issue et le score exact avec le meilleur objectif selon la stratégie active.
 
 Le projet ne place aucun prono automatiquement. Il affiche et notifie les recommandations pour validation manuelle dans MPP.
 
@@ -27,7 +27,31 @@ npm start
 
 Interface: `http://localhost:8787`
 
-Le tableau principal donne les recos jouables triées par edge décroissant, avec une colonne `À jouer` qui dit quoi saisir précisément dans MPP (`Mets 0-2 pour Pays-Bas`, `Mets 1-1 (nul)`, etc.). Le bouton `Voir` ouvre le détail du match: EV par issue, points et foule MPP, marchés Polymarket, raisons et historique récent des probabilités.
+Le dashboard est protégé par un PIN côté API. Par défaut en local/VPS:
+
+```bash
+DASHBOARD_PIN_CODES=1706,0000
+```
+
+Le tableau principal donne les recos jouables triées par score stratégie, avec une colonne `À jouer` qui dit quoi saisir précisément dans MPP (`Mets 0-2 pour Pays-Bas`, `Mets 1-1 (nul)`, etc.). Le bouton `Voir` ouvre le détail du match: EV par issue, points et foule MPP, leverage de classement, marchés Polymarket, raisons et historique récent des probabilités.
+
+## Stratégie
+
+Par défaut, l'app tourne en `MPP_STRATEGY_MODE=chase`, adapté quand tu es loin au classement et que tu veux maximiser les chances de remonter:
+
+- l'EV réelle reste affichée et calculée comme probabilité Polymarket x points MPP + EV du bonus score exact;
+- le score stratégie ajoute une prime de leverage aux issues peu jouées par la foule MPP;
+- une issue est pénalisée si elle est très populaire côté MPP mais moins soutenue par Polymarket;
+- les très faibles probabilités gardent une pénalité de loterie pour éviter les coups trop gratuits;
+- le score exact optimise le bonus exact attendu, avec une prime légère aux scores rares en mode chase.
+
+Pour revenir à une logique strictement prudente:
+
+```bash
+MPP_STRATEGY_MODE=ev
+```
+
+Les poids du mode chase sont réglables dans `.env`: `MPP_CHASE_LEVERAGE_WEIGHT`, `MPP_CHASE_POSITIVE_CROWD_EDGE_WEIGHT`, `MPP_CHASE_NEGATIVE_CROWD_EDGE_WEIGHT`, `MPP_CHASE_LOTTERY_PENALTY_WEIGHT`, `MPP_CHASE_MIN_USEFUL_PROBABILITY`, `MPP_CHASE_SCORE_BONUS_WEIGHT`.
 
 À partir des matchs à élimination directe, l'app marque le match en `scope MPP 120 min` et réduit la confiance d'un niveau, car les marchés externes peuvent être exprimés en 90 minutes alors que MPP compte 120 minutes hors tirs au but.
 
@@ -56,6 +80,27 @@ MPP_POLL_MINUTES=10
 MPP_FAST_POLL_MINUTES=2
 MPP_PROFILE_DIR=./data/mpp-chrome-profile
 ```
+
+## Auto-saisie MPP
+
+L'app peut saisir automatiquement le prono MPP recommandé juste avant la fermeture:
+
+```bash
+MPP_AUTO_PLAY=true
+MPP_AUTO_PLAY_DRY_RUN=false
+MPP_AUTO_PLAY_LEAD_SECONDS=60
+MPP_AUTO_PLAY_WINDOW_SECONDS=45
+```
+
+Fonctionnement:
+
+1. Le scheduler surveille les matchs proches du coup d'envoi.
+2. Dans la fenêtre T-60s, il rafraîchit Polymarket et MPP.
+3. Il recalcule la meilleure recommandation selon la stratégie active.
+4. Il ouvre la session Chromium persistante MPP et remplit les deux champs du score exact.
+5. Il marque le match comme traité pour éviter une double saisie.
+
+Le bouton `Dry-run MPP` vérifie la correspondance match/inputs sans écrire. Le bouton `Jouer MPP maintenant` applique manuellement la meilleure recommandation exploitable, sans attendre T-60s.
 
 Login initial MPP sur VPS, sans service payant:
 

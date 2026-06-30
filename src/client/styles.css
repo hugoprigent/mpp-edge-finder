@@ -87,9 +87,39 @@ button:disabled {
 
 .statusGrid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.authShell {
+  min-height: 100vh;
+  width: min(420px, calc(100% - 32px));
+  display: grid;
+  place-items: center;
+  padding: 32px 0;
+}
+
+.loginPanel {
+  width: 100%;
+  border: 1px solid #303932;
+  background: rgba(22, 27, 24, 0.9);
+  border-radius: 8px;
+  padding: 22px;
+  display: grid;
+  gap: 14px;
+}
+
+.pinInput {
+  width: 100%;
+  height: 58px;
+  border: 1px solid #465149;
+  background: #0e100f;
+  color: #f7fff7;
+  border-radius: 6px;
+  text-align: center;
+  font: 28px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0;
 }
 
 .statusCard,

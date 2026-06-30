@@ -81,7 +81,34 @@ describe("recommendMatch", () => {
     expect(rec.confidence).toBe("high");
   });
 
-  it("sorts actionable recommendations by edge before missing data", () => {
+  it("uses crowd leverage in chase mode when an underpicked outcome is still valuable", () => {
+    const rec = recommendMatch(
+      { ...match, scope: "90min" },
+      {
+        ...baseMpp,
+        pointsHome: 100,
+        pointsDraw: 150,
+        pointsAway: 130,
+        crowdHomePct: 80,
+        crowdDrawPct: 15,
+        crowdAwayPct: 5
+      },
+      {
+        ...baseMarket,
+        pHome: 0.5,
+        pDraw: 0.15,
+        pAway: 0.35
+      }
+    );
+
+    expect(rec.strategy).toBe("chase");
+    expect(rec.outcome).toBe("away");
+    expect(rec.evEdge).toBeLessThan(0);
+    expect(rec.outcomeAnalysis.away.crowdEdge).toBeGreaterThan(0);
+    expect(rec.strategyScore).toBeGreaterThan(rec.outcomeAnalysis.home.attackScore);
+  });
+
+  it("sorts actionable recommendations by strategy score before missing data", () => {
     const soon = new Date(Date.now() + 36e5).toISOString();
     const lowEdge = { ...match, id: "low", kickoffUtc: soon, homeTeam: "Japon", awayTeam: "Suède" };
     const highEdge = { ...match, id: "high", kickoffUtc: soon, homeTeam: "Tunisie", awayTeam: "Pays-Bas" };
@@ -100,7 +127,7 @@ describe("recommendMatch", () => {
     });
 
     expect(recs.map((rec) => rec.match.id)).toEqual(["high", "low", "missing"]);
-    expect(recs[0].edge).toBeGreaterThan(recs[1].edge);
+    expect(recs[0].strategyScore).toBeGreaterThan(recs[1].strategyScore);
     expect(recs[0].play.instruction).toContain("X2 sur ce match");
   });
 });

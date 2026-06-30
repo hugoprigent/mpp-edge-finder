@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type { AppStatus, MarketSnapshot, MppSnapshot, Recommendation, SyncResult } from "../shared/types.js";
 
 type RecommendationsResponse = { recommendations: Recommendation[] };
@@ -6,6 +6,7 @@ type BookmarkletResponse = { bookmarklet: string; importBookmarklet?: string };
 type MatchHistoryResponse = { mppHistory: MppSnapshot[]; marketHistory: MarketSnapshot[] };
 
 export function App() {
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [mppText, setMppText] = useState("");
@@ -21,15 +22,14 @@ export function App() {
 
   async function refresh() {
     const [statusRes, recRes, bookmarkletRes] = await Promise.all([
-      fetch("/api/status").then((r) => r.json()),
-      fetch("/api/recommendations?window=120").then((r) => r.json()),
-      fetch("/api/bookmarklet").then((r) => r.json())
+      fetchJson<AppStatus>("/api/status"),
+      fetchJson<RecommendationsResponse>("/api/recommendations?window=120"),
+      fetchJson<BookmarkletResponse>("/api/bookmarklet")
     ]);
     setStatus(statusRes);
-    setRecommendations((recRes as RecommendationsResponse).recommendations);
-    const bookmarklets = bookmarkletRes as BookmarkletResponse;
-    setBookmarklet(bookmarklets.bookmarklet);
-    setImportBookmarklet(bookmarklets.importBookmarklet ?? "");
+    setRecommendations(recRes.recommendations);
+    setBookmarklet(bookmarkletRes.bookmarklet);
+    setImportBookmarklet(bookmarkletRes.importBookmarklet ?? "");
   }
 
   async function runAction(name: string, action: () => Promise<SyncResult | unknown>) {
@@ -47,7 +47,13 @@ export function App() {
   }
 
   useEffect(() => {
-    void refresh();
+    void checkAuth(setAuthenticated).then((ok) => {
+      if (ok) void refresh();
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!authenticated) return;
     const events = new EventSource("/api/events");
     events.addEventListener("sync", () => void refresh());
     events.addEventListener("notification", (event) => {
@@ -59,7 +65,7 @@ export function App() {
     });
     events.addEventListener("error", () => void refresh());
     return () => events.close();
-  }, []);
+  }, [authenticated]);
 
   useEffect(() => {
     if (!selectedMatchId) {
@@ -81,16 +87,25 @@ export function App() {
   const x2 = actionable.find((rec) => rec.x2Candidate);
   const selectedRec = selectedMatchId ? recommendations.find((rec) => rec.match.id === selectedMatchId) ?? null : null;
 
+  if (authenticated === null) {
+    return <main className="authShell"><div className="loginPanel"><h1>MPP Edge Finder</h1><p>Chargement...</p></div></main>;
+  }
+
+  if (!authenticated) {
+    return <LoginScreen setAuthenticated={setAuthenticated} refresh={refresh} message={message} setMessage={setMessage} />;
+  }
+
   return (
     <main>
       <header className="topbar">
         <div>
           <h1>MPP Edge Finder</h1>
-          <p>Probabilités Polymarket publiques + points MPP = pronos classés par espérance de points.</p>
+          <p>Probabilités Polymarket publiques + points MPP + foule MPP = pronos classés selon la stratégie active.</p>
         </div>
         <a className="mppLink" href="https://mpp.football/" target="_blank" rel="noreferrer">
           Ouvrir MPP
         </a>
+        <button onClick={() => void logout(setAuthenticated)}>Verrouiller</button>
       </header>
 
       <section className="statusGrid">
@@ -101,6 +116,12 @@ export function App() {
           label="Scraper MPP"
           value={status?.mppAutoScrape ? "auto" : "manuel"}
           sub={status?.lastMppScrapeError ? "login/scrape à vérifier" : status?.mppPollMinutes ? `${status.mppPollMinutes} min` : undefined}
+        />
+        <StatusCard label="Stratégie" value={status?.mppStrategyMode ?? "chase"} sub={status?.mppStrategyMode === "ev" ? "EV pure" : "remontée"} />
+        <StatusCard
+          label="Auto MPP"
+          value={status?.mppAutoPlay ? "on" : "off"}
+          sub={status?.mppAutoPlay ? `${status.mppAutoPlayDryRun ? "dry-run" : "réel"} T-${status.mppAutoPlayLeadSeconds}s` : "manuel"}
         />
         <StatusCard label="Push VPS" value={status?.ntfyConfigured ? "ntfy" : status?.telegramConfigured ? "telegram" : "off"} sub="optionnel" />
       </section>
@@ -116,6 +137,12 @@ export function App() {
         </button>
         <button disabled={Boolean(busy) || actionable.length === 0} onClick={() => runAction("notify", () => post("/api/notifications/test", {}))}>
           {busy === "notify" ? "Envoi..." : "Test notifications"}
+        </button>
+        <button disabled={Boolean(busy) || actionable.length === 0} onClick={() => runAction("dryrun", () => post("/api/automation/mpp/apply", { dryRun: true }))}>
+          {busy === "dryrun" ? "Test..." : "Dry-run MPP"}
+        </button>
+        <button disabled={Boolean(busy) || actionable.length === 0} onClick={() => runAction("autoplay", () => post("/api/automation/mpp/apply", { dryRun: false }))}>
+          {busy === "autoplay" ? "Saisie..." : "Jouer MPP maintenant"}
         </button>
         <button disabled={browserAlerts === "unsupported" || browserAlerts === "granted"} onClick={() => void enableBrowserAlerts(setBrowserAlerts)}>
           {browserAlerts === "granted" ? "Alertes navigateur actives" : "Activer alertes navigateur"}
@@ -158,7 +185,7 @@ export function App() {
         {x2 ? (
           <p>
             Meilleur spot actuel: <strong>{x2.match.homeTeam} - {x2.match.awayTeam}</strong>, reco <strong>{labelOutcome(x2)}</strong>{" "}
-            {x2.score ? <strong>{x2.score.home}-{x2.score.away}</strong> : null}, EV {x2.totalEv.toFixed(1)} pts.
+            {x2.score ? <strong>{x2.score.home}-{x2.score.away}</strong> : null}, score stratégie {x2.strategyScore.toFixed(1)}, EV {x2.totalEv.toFixed(1)} pts.
           </p>
         ) : (
           <p>Pas encore assez de données pour recommander le X2.</p>
@@ -168,7 +195,7 @@ export function App() {
       <section>
         <div className="sectionTitle">
           <h2>Recommandations</h2>
-          <span>{actionable.length} exploitables triées par edge{missing ? `, ${missing} à compléter` : ""}</span>
+          <span>{actionable.length} exploitables triées par score stratégie{missing ? `, ${missing} à compléter` : ""}</span>
         </div>
         <div className="tableWrap">
           <table>
@@ -179,7 +206,7 @@ export function App() {
                 <th>MPP</th>
                 <th>Polymarket</th>
                 <th>À jouer</th>
-                <th>EV</th>
+                <th>Objectif</th>
                 <th>Confiance</th>
                 <th>X2</th>
                 <th>Détail</th>
@@ -209,7 +236,10 @@ export function App() {
                     <strong className="playText">{rec.play.instruction}</strong>
                     {rec.score ? <small>{labelOutcome(rec)}, bonus rareté +{rec.score.estimatedBonus}</small> : null}
                   </td>
-                  <td>{rec.totalEv.toFixed(1)} <small>edge +{rec.edge.toFixed(1)}</small></td>
+                  <td>
+                    {rec.strategyScore.toFixed(1)}
+                    <small>EV {rec.totalEv.toFixed(1)} | edge {signedNumber(rec.evEdge)}</small>
+                  </td>
                   <td><Badge value={rec.confidence} /></td>
                   <td>{rec.x2Candidate ? "meilleur" : rec.x2Rank ? `#${rec.x2Rank}` : "-"}</td>
                   <td>
@@ -239,6 +269,57 @@ export function App() {
   );
 }
 
+function LoginScreen({
+  setAuthenticated,
+  refresh,
+  message,
+  setMessage
+}: {
+  setAuthenticated: (value: boolean) => void;
+  refresh: () => Promise<void>;
+  message: string;
+  setMessage: (value: string) => void;
+}) {
+  const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      await post("/api/auth/login", { pin });
+      setAuthenticated(true);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+      setAuthenticated(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="authShell">
+      <form className="loginPanel" onSubmit={(event) => void submit(event)}>
+        <h1>MPP Edge Finder</h1>
+        <p>Accès privé</p>
+        <input
+          className="pinInput"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={4}
+          value={pin}
+          onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
+          autoFocus
+        />
+        <button disabled={busy || pin.length < 4}>{busy ? "Ouverture..." : "Entrer"}</button>
+        {message && <div className="message warning">{message}</div>}
+      </form>
+    </main>
+  );
+}
+
 function MatchDetail({ rec, history, onClose }: { rec: Recommendation; history: MatchHistoryResponse | null; onClose: () => void }) {
   const marketHistory = history?.marketHistory ?? [];
   const mppHistory = history?.mppHistory ?? [];
@@ -255,18 +336,19 @@ function MatchDetail({ rec, history, onClose }: { rec: Recommendation; history: 
 
       <div className="detailGrid">
         <Metric label="À jouer" value={rec.play.instruction} />
-        <Metric label="EV" value={`${rec.totalEv.toFixed(1)} pts`} sub={`edge +${rec.edge.toFixed(1)}`} />
+        <Metric label="EV" value={`${rec.totalEv.toFixed(1)} pts`} sub={`edge EV ${signedNumber(rec.evEdge)}`} />
+        <Metric label="Objectif" value={`${rec.strategyScore.toFixed(1)} pts`} sub={`${rec.strategy} | leverage ${rec.leverage.toFixed(1)} | foule ${signedPctPoints(rec.crowdEdge)}`} />
         <Metric label="Confiance" value={rec.confidence} sub={rec.x2Candidate ? "spot X2" : rec.x2Rank ? `X2 #${rec.x2Rank}` : "hors X2"} />
         <Metric label="Snapshots" value={`${mppHistory.length} MPP / ${marketHistory.length} marchés`} sub={rec.market ? `vol. ${compactNumber(rec.market.volume)}` : "marché manquant"} />
       </div>
 
       <div className="detailColumns">
         <section>
-          <h3>EV par issue</h3>
+          <h3>Issues</h3>
           <dl className="kvList">
-            <div><dt>{rec.match.homeTeam}</dt><dd>{rec.outcomeEvs.home.toFixed(1)}</dd></div>
-            <div><dt>Nul</dt><dd>{rec.outcomeEvs.draw.toFixed(1)}</dd></div>
-            <div><dt>{rec.match.awayTeam}</dt><dd>{rec.outcomeEvs.away.toFixed(1)}</dd></div>
+            <div><dt>{rec.match.homeTeam}</dt><dd>{issueSummary(rec, "home")}</dd></div>
+            <div><dt>Nul</dt><dd>{issueSummary(rec, "draw")}</dd></div>
+            <div><dt>{rec.match.awayTeam}</dt><dd>{issueSummary(rec, "away")}</dd></div>
           </dl>
         </section>
 
@@ -364,8 +446,40 @@ async function post(url: string, body?: unknown) {
     headers: body == null ? undefined : { "content-type": "application/json" },
     body: body == null ? undefined : JSON.stringify(body)
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) throw new Error(await responseError(response));
   return response.json();
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(await responseError(response));
+  return response.json() as Promise<T>;
+}
+
+async function responseError(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const payload = JSON.parse(text) as Partial<{ message: string; error: string }>;
+    return payload.message || payload.error || text;
+  } catch {
+    return text;
+  }
+}
+
+async function checkAuth(setAuthenticated: (value: boolean) => void): Promise<boolean> {
+  try {
+    const payload = await fetchJson<{ authenticated: boolean }>("/api/auth/status");
+    setAuthenticated(payload.authenticated);
+    return payload.authenticated;
+  } catch {
+    setAuthenticated(false);
+    return false;
+  }
+}
+
+async function logout(setAuthenticated: (value: boolean) => void) {
+  await post("/api/auth/logout", {}).catch(() => null);
+  setAuthenticated(false);
 }
 
 async function enableBrowserAlerts(setBrowserAlerts: (value: NotificationPermission | "unsupported") => void) {
@@ -392,6 +506,19 @@ function labelOutcome(rec: Recommendation): string {
   if (rec.outcome === "away") return rec.match.awayTeam;
   if (rec.outcome === "draw") return "Nul";
   return "n/a";
+}
+
+function issueSummary(rec: Recommendation, outcome: "home" | "draw" | "away"): string {
+  const item = rec.outcomeAnalysis[outcome];
+  return `EV ${item.expectedPoints.toFixed(1)} | atk ${item.attackScore.toFixed(1)} | foule ${item.crowdPct.toFixed(0)}% | edge ${signedPctPoints(item.crowdEdge)}`;
+}
+
+function signedNumber(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+}
+
+function signedPctPoints(value: number): string {
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)} pts`;
 }
 
 function pct(value: number): string {

@@ -83,4 +83,51 @@ describe("parseMppTokens", () => {
     expect(matches).toHaveLength(1);
     expect(matches[0]).toMatchObject({ phase: "1/16 de finale", scope: "120min" });
   });
+
+  it("extracts matches from the current MPP compact stream without rank tokens", () => {
+    const matches = parseMppTokens([
+      t("Mercredi 1 juillet"),
+      t("3"),
+      t("/"),
+      t("3"),
+      t("Mexique"),
+      t("1/16 de finale"),
+      t("-"),
+      t("1h00"),
+      input("1"),
+      input("2"),
+      t("84"),
+      t("75%"),
+      t("108"),
+      t("15%"),
+      t("122"),
+      t("10%"),
+      t("Équateur"),
+      t("Angleterre"),
+      t("1/16 de finale"),
+      t("-"),
+      t("16h00"),
+      input("2"),
+      input("2"),
+      t("39"),
+      t("92%"),
+      t("144"),
+      t("6%"),
+      t("181"),
+      t("2%"),
+      t("RD Congo")
+    ]);
+
+    expect(matches).toHaveLength(2);
+    expect(matches[0]).toMatchObject({
+      homeTeam: "Mexique",
+      awayTeam: "Équateur",
+      currentHomeScore: 1,
+      currentAwayScore: 2,
+      pointsAway: 122,
+      crowdAwayPct: 10,
+      scope: "120min"
+    });
+    expect(matches[0].kickoffUtc).toBe("2026-06-30T23:00:00.000Z");
+  });
 });

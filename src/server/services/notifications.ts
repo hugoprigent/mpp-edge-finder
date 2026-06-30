@@ -72,11 +72,16 @@ function formatRecommendationPlainLines(rec: Recommendation): string[] {
     `⚽ ${rec.match.homeTeam} - ${rec.match.awayTeam}`,
     `Coup d'envoi: ${kickoff}`,
     `À jouer: ${rec.play.instruction}`,
-    `EV: ${rec.totalEv.toFixed(1)} pts | edge +${rec.edge.toFixed(1)} | confiance ${rec.confidence}`,
+    `Objectif: ${rec.strategyScore.toFixed(1)} (${rec.strategy}) | EV ${rec.totalEv.toFixed(1)} | edge EV ${signed(rec.evEdge)} | confiance ${rec.confidence}`,
     `MPP: ${mpp}`,
     `Polymarket: ${poly}`,
+    `Foule: leverage ${rec.leverage.toFixed(1)} | edge foule ${signed((rec.crowdEdge * 100), 1)} pts`,
     `X2: ${rec.x2Candidate ? "OUI, meilleur spot actuel" : rec.x2Rank ? `non, rang #${rec.x2Rank}` : "non"}`
   ];
+}
+
+function signed(value: number, digits = 1): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
 function escapeHtml(value: string): string {

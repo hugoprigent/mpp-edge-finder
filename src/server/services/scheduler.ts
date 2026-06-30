@@ -3,12 +3,16 @@ import { Store } from "../store.js";
 import { buildRecommendations } from "./recommender.js";
 import { formatRecommendationMessage, formatRecommendationPlainMessage, sendNtfy, sendTelegram } from "./notifications.js";
 import { scrapeMpp, syncPolymarket } from "./sync.js";
+import { applyMppRecommendation } from "./mppAutoPlayer.js";
 import type { Match, Recommendation } from "../../shared/types.js";
 
 const NEAR_KICKOFF_WINDOW_MS = 2 * 36e5;
 const POLYMARKET_FAST_POLL_MS = 60_000;
 const FIRST_MPP_SCRAPE_DELAY_MS = 15_000;
 const NOTIFICATION_TOLERANCE_MS = 60_000;
+const AUTO_PLAY_TICK_MS = 20_000;
+
+let autoPlayRunning = false;
 
 export function startSchedulers(store: Store, broadcast: (event: string, payload: unknown) => void): void {
   schedulePolymarketSync(store, broadcast);
@@ -17,6 +21,10 @@ export function startSchedulers(store: Store, broadcast: (event: string, payload
   setInterval(() => {
     void notifyUpcomingMatches(store, broadcast).catch((error) => broadcast("error", { message: String(error?.message ?? error) }));
   }, 60_000).unref();
+
+  setInterval(() => {
+    void autoPlayUpcomingMatches(store, broadcast).catch((error) => broadcast("error", { source: "mpp-autoplay", message: String(error?.message ?? error) }));
+  }, AUTO_PLAY_TICK_MS).unref();
 }
 
 function schedulePolymarketSync(store: Store, broadcast: (event: string, payload: unknown) => void): void {
@@ -87,6 +95,41 @@ export async function notifyUpcomingMatches(store: Store, broadcast: (event: str
     await sendNtfy(formatRecommendationPlainMessage(rec), `${rec.match.homeTeam} - ${rec.match.awayTeam}`);
     store.recordNotification(rec.match.id, ntfyType);
     broadcast("notification", notificationPayload(rec, ntfyType, true));
+  }
+}
+
+export async function autoPlayUpcomingMatches(store: Store, broadcast: (event: string, payload: unknown) => void): Promise<void> {
+  if (!config.mppAutoPlay || autoPlayRunning) return;
+  const now = Date.now();
+  const leadMs = config.mppAutoPlayLeadSeconds * 1000;
+  const windowMs = config.mppAutoPlayWindowSeconds * 1000;
+  const hasNearCandidate = store.getMatches().some((match) => {
+    const delta = new Date(match.kickoffUtc).getTime() - now;
+    return delta >= 0 && delta <= leadMs + windowMs + 60_000;
+  });
+  if (!hasNearCandidate) return;
+
+  autoPlayRunning = true;
+  try {
+    await Promise.allSettled([syncPolymarket(store), scrapeMpp(store)]);
+    const recs = buildRecommendations({
+      matches: store.getMatches(),
+      mppByMatch: store.latestMppSnapshots(),
+      marketByMatch: store.latestMarketSnapshots()
+    });
+
+    for (const rec of recs) {
+      if (rec.outcome === "needs-data" || !rec.score) continue;
+      const delta = new Date(rec.match.kickoffUtc).getTime() - Date.now();
+      if (delta < 0 || Math.abs(delta - leadMs) > windowMs) continue;
+      const type = `mpp-autoplay-${config.mppAutoPlayLeadSeconds}s`;
+      if (store.alreadyNotified(rec.match.id, type)) continue;
+      const result = await applyMppRecommendation(rec, config.mppAutoPlayDryRun);
+      broadcast("automation", result);
+      if (result.ok && !result.dryRun) store.recordNotification(rec.match.id, type);
+    }
+  } finally {
+    autoPlayRunning = false;
   }
 }
 

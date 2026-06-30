@@ -4,6 +4,8 @@ export type Confidence = "high" | "medium" | "low" | "missing-data";
 
 export type MatchScope = "90min" | "120min";
 
+export type StrategyMode = "ev" | "chase";
+
 export type Match = {
   id: string;
   kickoffUtc: string;
@@ -65,6 +67,7 @@ export type ScorePick = {
   probability: number;
   estimatedBonus: number;
   expectedBonusPoints: number;
+  objective: number;
 };
 
 export type PlayInstruction = {
@@ -84,12 +87,29 @@ export type Recommendation = {
   score?: ScorePick;
   play: PlayInstruction;
   outcomeEvs: Record<Outcome, number>;
+  outcomeAnalysis: Record<Outcome, OutcomeAnalysis>;
   totalEv: number;
   edge: number;
+  evEdge: number;
+  strategy: StrategyMode;
+  strategyScore: number;
+  strategyEdge: number;
+  leverage: number;
+  crowdEdge: number;
   confidence: Confidence;
   x2Rank?: number | null;
   x2Candidate: boolean;
   reasons: string[];
+};
+
+export type OutcomeAnalysis = {
+  probability: number;
+  points: number;
+  crowdPct: number;
+  expectedPoints: number;
+  leverage: number;
+  crowdEdge: number;
+  attackScore: number;
 };
 
 export type ExtractedToken = {
@@ -110,6 +130,10 @@ export type AppStatus = {
   mppAutoScrape: boolean;
   mppPollMinutes: number;
   mppProfileDir: string;
+  mppStrategyMode: StrategyMode;
+  mppAutoPlay: boolean;
+  mppAutoPlayDryRun: boolean;
+  mppAutoPlayLeadSeconds: number;
   polymarketLeagueSlug: string;
 };
 

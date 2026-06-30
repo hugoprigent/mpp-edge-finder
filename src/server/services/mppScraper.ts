@@ -27,7 +27,7 @@ export async function scrapeMppWithPlaywright(): Promise<ParsedMppMatch[]> {
   }
 }
 
-async function extractVisibleTokens(page: import("playwright").Page): Promise<ExtractedToken[]> {
+export async function extractVisibleTokens(page: import("playwright").Page): Promise<ExtractedToken[]> {
   return page.evaluate(() => {
     const clean = (value: string | null | undefined) => (value || "").replace(/\s+/g, " ").trim();
     const out: ExtractedToken[] = [];

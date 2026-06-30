@@ -86,12 +86,14 @@ export function parseMppTokens(tokens: ExtractedToken[]): ParsedMppMatch[] {
       continue;
     }
 
-    if (!currentDate || token.type !== "text" || !rankRegex.test(token.value)) {
+    if (!currentDate || token.type !== "text") {
       i += 1;
       continue;
     }
 
-    const parsed = tryParseMatchAt(cleanTokens, i, currentDate);
+    const parsed = rankRegex.test(token.value)
+      ? tryParseRankedMatchAt(cleanTokens, i, currentDate)
+      : tryParseCompactMatchAt(cleanTokens, i, currentDate);
     if (parsed) {
       matches.push(parsed.match);
       i = parsed.nextIndex;
@@ -104,7 +106,7 @@ export function parseMppTokens(tokens: ExtractedToken[]): ParsedMppMatch[] {
   return dedupe(matches);
 }
 
-function tryParseMatchAt(
+function tryParseRankedMatchAt(
   tokens: ExtractedToken[],
   start: number,
   currentDate: { day: number; month: number }
@@ -144,27 +146,98 @@ function tryParseMatchAt(
   if (!awayTeam || tokens[i]?.type !== "text" || isNonTeamText(awayTeam)) return null;
   i += 1;
 
-  const hour = Number(timeMatch[1]);
-  const minute = Number(timeMatch[2]);
-  const kickoffUtc = toUtcIso(currentDate.day, currentDate.month, hour, minute);
-  const mppKey = stableId("mpp", kickoffUtc, slugify(homeTeam), slugify(awayTeam));
+  return buildParsedMatch({
+    nextIndex: i,
+    currentDate,
+    timeMatch,
+    homeTeam,
+    awayTeam,
+    phase,
+    homeScoreToken,
+    awayScoreToken,
+    stats
+  });
+}
+
+function tryParseCompactMatchAt(
+  tokens: ExtractedToken[],
+  start: number,
+  currentDate: { day: number; month: number }
+): { match: ParsedMppMatch; nextIndex: number } | null {
+  let i = start;
+  const homeTeam = tokens[i]?.value;
+  if (!homeTeam || tokens[i]?.type !== "text" || isNonTeamText(homeTeam) || isInteger(homeTeam)) return null;
+  i += 1;
+
+  const phase = tokens[i]?.value;
+  if (!phase || !phaseRegex.test(phase)) return null;
+  i += 1;
+
+  if (tokens[i]?.value === "-") i += 1;
+
+  const timeToken = tokens[i]?.value;
+  const timeMatch = timeToken?.match(timeRegex);
+  if (!timeMatch) return null;
+  i += 1;
+
+  const homeScoreToken = tokens[i];
+  const awayScoreToken = tokens[i + 1];
+  if (homeScoreToken?.type !== "input" || awayScoreToken?.type !== "input") return null;
+  i += 2;
+
+  const stats = readStats(tokens, i);
+  if (!stats) return null;
+  i = stats.nextIndex;
+
+  const awayTeam = tokens[i]?.value;
+  if (!awayTeam || tokens[i]?.type !== "text" || isNonTeamText(awayTeam)) return null;
+  i += 1;
+
+  return buildParsedMatch({
+    nextIndex: i,
+    currentDate,
+    timeMatch,
+    homeTeam,
+    awayTeam,
+    phase,
+    homeScoreToken,
+    awayScoreToken,
+    stats
+  });
+}
+
+function buildParsedMatch(input: {
+  nextIndex: number;
+  currentDate: { day: number; month: number };
+  timeMatch: RegExpMatchArray;
+  homeTeam: string;
+  awayTeam: string;
+  phase: string;
+  homeScoreToken: ExtractedToken;
+  awayScoreToken: ExtractedToken;
+  stats: NonNullable<ReturnType<typeof readStats>>;
+}): { match: ParsedMppMatch; nextIndex: number } {
+  const hour = Number(input.timeMatch[1]);
+  const minute = Number(input.timeMatch[2]);
+  const kickoffUtc = toUtcIso(input.currentDate.day, input.currentDate.month, hour, minute);
+  const mppKey = stableId("mpp", kickoffUtc, slugify(input.homeTeam), slugify(input.awayTeam));
 
   return {
-    nextIndex: i,
+    nextIndex: input.nextIndex,
     match: {
       kickoffUtc,
-      homeTeam,
-      awayTeam,
-      phase,
-      scope: scopeForPhase(phase),
-      currentHomeScore: parseOptionalInt(homeScoreToken.value),
-      currentAwayScore: parseOptionalInt(awayScoreToken.value),
-      pointsHome: stats.pointsHome,
-      pointsDraw: stats.pointsDraw,
-      pointsAway: stats.pointsAway,
-      crowdHomePct: stats.crowdHomePct,
-      crowdDrawPct: stats.crowdDrawPct,
-      crowdAwayPct: stats.crowdAwayPct,
+      homeTeam: input.homeTeam,
+      awayTeam: input.awayTeam,
+      phase: input.phase,
+      scope: scopeForPhase(input.phase),
+      currentHomeScore: parseOptionalInt(input.homeScoreToken.value),
+      currentAwayScore: parseOptionalInt(input.awayScoreToken.value),
+      pointsHome: input.stats.pointsHome,
+      pointsDraw: input.stats.pointsDraw,
+      pointsAway: input.stats.pointsAway,
+      crowdHomePct: input.stats.crowdHomePct,
+      crowdDrawPct: input.stats.crowdDrawPct,
+      crowdAwayPct: input.stats.crowdAwayPct,
       mppKey
     }
   };

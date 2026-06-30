@@ -305,6 +305,10 @@ export class Store {
       mppAutoScrape: config.mppAutoScrape,
       mppPollMinutes: config.mppPollMinutes,
       mppProfileDir: config.mppProfileDir,
+      mppStrategyMode: config.mppStrategyMode,
+      mppAutoPlay: config.mppAutoPlay,
+      mppAutoPlayDryRun: config.mppAutoPlayDryRun,
+      mppAutoPlayLeadSeconds: config.mppAutoPlayLeadSeconds,
       polymarketLeagueSlug: config.polymarketLeagueSlug
     };
   }
