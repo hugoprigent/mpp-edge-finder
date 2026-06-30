@@ -21,6 +21,7 @@ type LatestData = {
 };
 
 const outcomes: Outcome[] = ["home", "draw", "away"];
+const PAST_MATCH_GRACE_MS = 5 * 60_000;
 
 type OutcomeCandidate = {
   outcome: Outcome;
@@ -36,7 +37,7 @@ export function buildRecommendations(data: LatestData, windowHours = 96): Recomm
   const recs = data.matches
     .filter((match) => {
       const kickoff = new Date(match.kickoffUtc).getTime();
-      return kickoff >= now - 2 * 36e5 && kickoff <= now + windowMs;
+      return kickoff >= now - PAST_MATCH_GRACE_MS && kickoff <= now + windowMs;
     })
     .map((match) => recommendMatch(match, data.mppByMatch[match.id], data.marketByMatch[match.id]));
 
