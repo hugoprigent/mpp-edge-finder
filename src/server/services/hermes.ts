@@ -60,7 +60,7 @@ export function getHermesRecommendations(store: Store, limit = 8) {
 export function getHermesHealth(store: Store) {
   const status = store.status();
   const issues: string[] = [];
-  if (!status.lastMppSync) issues.push("Aucun import MPP encore disponible.");
+  if (!status.lastMppSync) issues.push("Aucune lecture MPP encore disponible.");
   if (status.mppAutoScrape && status.lastMppScrapeError) issues.push(`Scraper MPP automatique en erreur: ${status.lastMppScrapeError}`);
   if (!status.lastPolymarketSync) issues.push("Aucune sync Polymarket encore disponible.");
   if (!status.telegramConfigured && !status.ntfyConfigured) issues.push("Aucun canal VPS configuré; active Telegram ou ntfy pour les notifications hors navigateur.");

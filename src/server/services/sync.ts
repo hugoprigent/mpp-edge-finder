@@ -75,7 +75,7 @@ export function importParsedMpp(store: Store, parsed: ParsedMppMatch[], rawSourc
   }
   return {
     ok: parsed.length > 0,
-    message: parsed.length > 0 ? `${parsed.length} matchs MPP importés.` : "Aucun match MPP reconnu dans l'import.",
+    message: parsed.length > 0 ? `${parsed.length} matchs MPP lus.` : "Aucun match MPP reconnu pendant la lecture.",
     importedMatches: parsed.length
   };
 }

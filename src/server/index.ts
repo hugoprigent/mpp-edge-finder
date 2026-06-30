@@ -8,7 +8,7 @@ import { config } from "./config.js";
 import { Store } from "./store.js";
 import { buildRecommendations } from "./services/recommender.js";
 import { getHermesHealth, getHermesManifest, getHermesRecommendations, sendManualBriefing } from "./services/hermes.js";
-import { applyMppRecommendation } from "./services/mppAutoPlayer.js";
+import { applyManualMppScore, applyMppRecommendation } from "./services/mppAutoPlayer.js";
 import { scrapeMpp, syncPolymarket, importMppText } from "./services/sync.js";
 import { formatRecommendationMessage, formatRecommendationPlainMessage, sendNtfy, sendTelegram } from "./services/notifications.js";
 import { startSchedulers } from "./services/scheduler.js";
@@ -143,6 +143,23 @@ app.post<{ Body: { matchId?: string; dryRun?: boolean } }>("/api/automation/mpp/
     return { ok: false, message: "Aucune recommandation exploitable." };
   }
   const result = await applyMppRecommendation(rec, request.body?.dryRun ?? true);
+  broadcast("automation", result);
+  return result;
+});
+
+app.post<{ Body: { matchId?: string; homeScore?: number; awayScore?: number; dryRun?: boolean } }>("/api/automation/mpp/manual-score", async (request, reply) => {
+  const match = request.body?.matchId ? store.getMatch(request.body.matchId) : undefined;
+  const homeScore = Number(request.body?.homeScore);
+  const awayScore = Number(request.body?.awayScore);
+  if (!match) {
+    reply.code(404);
+    return { ok: false, message: "Match introuvable." };
+  }
+  if (!Number.isInteger(homeScore) || !Number.isInteger(awayScore) || homeScore < 0 || awayScore < 0 || homeScore > 20 || awayScore > 20) {
+    reply.code(400);
+    return { ok: false, message: "Score invalide." };
+  }
+  const result = await applyManualMppScore(match, homeScore, awayScore, request.body?.dryRun ?? false);
   broadcast("automation", result);
   return result;
 });

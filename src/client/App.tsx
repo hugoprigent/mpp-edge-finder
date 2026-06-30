@@ -2,34 +2,24 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type { AppStatus, MarketSnapshot, MppSnapshot, Recommendation, SyncResult } from "../shared/types.js";
 
 type RecommendationsResponse = { recommendations: Recommendation[] };
-type BookmarkletResponse = { bookmarklet: string; importBookmarklet?: string };
 type MatchHistoryResponse = { mppHistory: MppSnapshot[]; marketHistory: MarketSnapshot[] };
 
 export function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [mppText, setMppText] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [bookmarklet, setBookmarklet] = useState("");
-  const [importBookmarklet, setImportBookmarklet] = useState("");
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [history, setHistory] = useState<MatchHistoryResponse | null>(null);
-  const [browserAlerts, setBrowserAlerts] = useState<NotificationPermission | "unsupported">(
-    typeof Notification === "undefined" ? "unsupported" : Notification.permission
-  );
 
   async function refresh() {
-    const [statusRes, recRes, bookmarkletRes] = await Promise.all([
+    const [statusRes, recRes] = await Promise.all([
       fetchJson<AppStatus>("/api/status"),
-      fetchJson<RecommendationsResponse>("/api/recommendations?window=120"),
-      fetchJson<BookmarkletResponse>("/api/bookmarklet")
+      fetchJson<RecommendationsResponse>("/api/recommendations?window=120")
     ]);
     setStatus(statusRes);
     setRecommendations(recRes.recommendations);
-    setBookmarklet(bookmarkletRes.bookmarklet);
-    setImportBookmarklet(bookmarkletRes.importBookmarklet ?? "");
   }
 
   async function runAction(name: string, action: () => Promise<SyncResult | unknown>) {
@@ -56,12 +46,8 @@ export function App() {
     if (!authenticated) return;
     const events = new EventSource("/api/events");
     events.addEventListener("sync", () => void refresh());
-    events.addEventListener("notification", (event) => {
+    events.addEventListener("notification", () => {
       void refresh();
-      const payload = parseEventPayload(event);
-      if (payload && typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification(payload.title, { body: payload.body, tag: payload.matchId });
-      }
     });
     events.addEventListener("error", () => void refresh());
     return () => events.close();
@@ -100,52 +86,37 @@ export function App() {
       <header className="topbar">
         <div>
           <h1>MPP Edge Finder</h1>
-          <p>Probabilités Polymarket publiques + points MPP + foule MPP = pronos classés selon la stratégie active.</p>
+          <p>Décisions MPP en direct: points, foule, marché Polymarket et saisie automatique.</p>
         </div>
-        <a className="mppLink" href="https://mpp.football/" target="_blank" rel="noreferrer">
-          Ouvrir MPP
-        </a>
-        <button onClick={() => void logout(setAuthenticated)}>Verrouiller</button>
+        <div className="topActions">
+          <a className="mppLink" href="https://mpp.football/" target="_blank" rel="noreferrer">Ouvrir MPP</a>
+          <button onClick={() => void logout(setAuthenticated)}>Verrouiller</button>
+        </div>
       </header>
 
       <section className="statusGrid">
-        <StatusCard label="Matchs" value={status?.matches ?? 0} />
-        <StatusCard label="Snapshots MPP" value={status?.mppSnapshots ?? 0} sub={formatDate(status?.lastMppSync)} />
-        <StatusCard label="Snapshots marchés" value={status?.marketSnapshots ?? 0} sub={formatDate(status?.lastPolymarketSync)} />
+        <StatusCard label="Matchs suivis" value={status?.matches ?? 0} />
+        <StatusCard label="MPP" value={formatDate(status?.lastMppSync)} sub={status?.lastMppScrapeError ? "à vérifier" : "scrape auto"} />
+        <StatusCard label="Polymarket" value={formatDate(status?.lastPolymarketSync)} sub={status?.polymarketLeagueSlug ?? "fwc"} />
         <StatusCard
-          label="Scraper MPP"
-          value={status?.mppAutoScrape ? "auto" : "manuel"}
-          sub={status?.lastMppScrapeError ? "login/scrape à vérifier" : status?.mppPollMinutes ? `${status.mppPollMinutes} min` : undefined}
-        />
-        <StatusCard label="Stratégie" value={status?.mppStrategyMode ?? "chase"} sub={status?.mppStrategyMode === "ev" ? "EV pure" : "remontée"} />
-        <StatusCard
-          label="Auto MPP"
+          label="Saisie auto"
           value={status?.mppAutoPlay ? "on" : "off"}
           sub={status?.mppAutoPlay ? `${status.mppAutoPlayDryRun ? "dry-run" : "réel"} T-${status.mppAutoPlayLeadSeconds}s` : "manuel"}
         />
-        <StatusCard label="Push VPS" value={status?.ntfyConfigured ? "ntfy" : status?.telegramConfigured ? "telegram" : "off"} sub="optionnel" />
+        <StatusCard label="Stratégie" value={status?.mppStrategyMode ?? "chase"} sub={status?.mppStrategyMode === "ev" ? "EV pure" : "remontée"} />
       </section>
 
       {status?.lastMppScrapeError && <div className="message warning">MPP auto: {status.lastMppScrapeError}</div>}
 
       <section className="actions">
         <button disabled={Boolean(busy)} onClick={() => runAction("poly", () => post("/api/sync/polymarket/run"))}>
-          {busy === "poly" ? "Sync..." : "Sync Polymarket"}
+          {busy === "poly" ? "Sync..." : "Sync marchés"}
         </button>
         <button disabled={Boolean(busy)} onClick={() => runAction("scrape", () => post("/api/scrape/mpp/run"))}>
-          {busy === "scrape" ? "Scrape..." : "Scrape MPP Chromium"}
-        </button>
-        <button disabled={Boolean(busy) || actionable.length === 0} onClick={() => runAction("notify", () => post("/api/notifications/test", {}))}>
-          {busy === "notify" ? "Envoi..." : "Test notifications"}
+          {busy === "scrape" ? "Lecture..." : "Lire MPP"}
         </button>
         <button disabled={Boolean(busy) || actionable.length === 0} onClick={() => runAction("dryrun", () => post("/api/automation/mpp/apply", { dryRun: true }))}>
-          {busy === "dryrun" ? "Test..." : "Dry-run MPP"}
-        </button>
-        <button disabled={Boolean(busy) || actionable.length === 0} onClick={() => runAction("autoplay", () => post("/api/automation/mpp/apply", { dryRun: false }))}>
-          {busy === "autoplay" ? "Saisie..." : "Jouer MPP maintenant"}
-        </button>
-        <button disabled={browserAlerts === "unsupported" || browserAlerts === "granted"} onClick={() => void enableBrowserAlerts(setBrowserAlerts)}>
-          {browserAlerts === "granted" ? "Alertes navigateur actives" : "Activer alertes navigateur"}
+          {busy === "dryrun" ? "Test..." : "Tester contrôle MPP"}
         </button>
         <button disabled={Boolean(busy)} onClick={() => void refresh()}>
           Rafraîchir
@@ -154,48 +125,21 @@ export function App() {
 
       {message && <div className="message">{message}</div>}
 
-      <section className="importBox">
-        <div className="importHeader">
-          <div>
-            <h2>Import MPP sans API payante</h2>
-            <p>Depuis MPP connecté: import direct en un clic, ou copie JSON puis colle ici.</p>
-          </div>
-          <div className="buttonGroup">
-            <button disabled={!importBookmarklet} onClick={() => navigator.clipboard.writeText(importBookmarklet)}>
-              Copier import direct
-            </button>
-            <button onClick={() => navigator.clipboard.writeText(bookmarklet)}>Copier JSON</button>
-          </div>
-        </div>
-        <textarea
-          placeholder='Colle ici le JSON copié depuis MPP, par exemple [{"type":"text","value":"Vendredi 26 juin"}, ...]'
-          value={mppText}
-          onChange={(event) => setMppText(event.target.value)}
-        />
-        <button
-          disabled={Boolean(busy) || !mppText.trim()}
-          onClick={() => runAction("import", () => post("/api/import/mpp-text", { text: mppText }))}
-        >
-          {busy === "import" ? "Import..." : "Importer snapshot MPP"}
-        </button>
-      </section>
-
       <section className="x2Panel">
-        <h2>Spot X2</h2>
+        <h2>Décision prioritaire</h2>
         {x2 ? (
           <p>
-            Meilleur spot actuel: <strong>{x2.match.homeTeam} - {x2.match.awayTeam}</strong>, reco <strong>{labelOutcome(x2)}</strong>{" "}
-            {x2.score ? <strong>{x2.score.home}-{x2.score.away}</strong> : null}, score stratégie {x2.strategyScore.toFixed(1)}, EV {x2.totalEv.toFixed(1)} pts.
+            <strong>{x2.match.homeTeam} - {x2.match.awayTeam}</strong> · <strong>{x2.play.instruction}</strong> · objectif {x2.strategyScore.toFixed(1)} · EV {x2.totalEv.toFixed(1)}
           </p>
         ) : (
-          <p>Pas encore assez de données pour recommander le X2.</p>
+          <p>Pas encore assez de données synchronisées.</p>
         )}
       </section>
 
       <section>
         <div className="sectionTitle">
           <h2>Recommandations</h2>
-          <span>{actionable.length} exploitables triées par score stratégie{missing ? `, ${missing} à compléter` : ""}</span>
+          <span>{actionable.length} jouables{missing ? `, ${missing} à compléter` : ""}</span>
         </div>
         <div className="tableWrap">
           <table>
@@ -203,10 +147,10 @@ export function App() {
               <tr>
                 <th>Match</th>
                 <th>Heure</th>
-                <th>MPP</th>
-                <th>Polymarket</th>
-                <th>À jouer</th>
-                <th>Objectif</th>
+                <th>Points MPP</th>
+                <th>Marché</th>
+                <th>Décision</th>
+                <th>Score</th>
                 <th>Confiance</th>
                 <th>X2</th>
                 <th>Détail</th>
@@ -227,10 +171,13 @@ export function App() {
                     <strong>{rec.match.homeTeam}</strong>
                     <span> - </span>
                     <strong>{rec.match.awayTeam}</strong>
-                    <small>{rec.reasons[0]}</small>
+                    <small>{rec.mpp ? `Foule ${rec.mpp.crowdHomePct}% / ${rec.mpp.crowdDrawPct}% / ${rec.mpp.crowdAwayPct}%` : "MPP manquant"}</small>
                   </td>
                   <td>{formatKickoff(rec.match.kickoffUtc)}</td>
-                  <td>{rec.mpp ? `${rec.mpp.pointsHome}/${rec.mpp.pointsDraw}/${rec.mpp.pointsAway}` : "à importer"}</td>
+                  <td>
+                    {rec.mpp ? `${rec.mpp.pointsHome}/${rec.mpp.pointsDraw}/${rec.mpp.pointsAway}` : "à lire"}
+                    {rec.mpp ? <small>Saisi {scoreText(rec.mpp.currentHomeScore, rec.mpp.currentAwayScore)}</small> : null}
+                  </td>
                   <td>{rec.market ? `${pct(rec.market.pHome)} / ${pct(rec.market.pDraw)} / ${pct(rec.market.pAway)}` : "à sync"}</td>
                   <td>
                     <strong className="playText">{rec.play.instruction}</strong>
@@ -238,7 +185,7 @@ export function App() {
                   </td>
                   <td>
                     {rec.strategyScore.toFixed(1)}
-                    <small>EV {rec.totalEv.toFixed(1)} | edge {signedNumber(rec.evEdge)}</small>
+                    <small>EV {rec.totalEv.toFixed(1)} · edge {signedNumber(rec.evEdge)}</small>
                   </td>
                   <td><Badge value={rec.confidence} /></td>
                   <td>{rec.x2Candidate ? "meilleur" : rec.x2Rank ? `#${rec.x2Rank}` : "-"}</td>
@@ -257,7 +204,7 @@ export function App() {
               ))}
               {recommendations.length === 0 && (
                 <tr>
-                  <td colSpan={9}>Commence par “Sync Polymarket”, puis importe un snapshot MPP.</td>
+                  <td colSpan={9}>Commence par “Sync marchés”, puis “Lire MPP”.</td>
                 </tr>
               )}
             </tbody>
@@ -360,7 +307,7 @@ function MatchDetail({ rec, history, onClose }: { rec: Recommendation; history: 
               <div><dt>Foule</dt><dd>{rec.mpp.crowdHomePct}% / {rec.mpp.crowdDrawPct}% / {rec.mpp.crowdAwayPct}%</dd></div>
               <div><dt>Score saisi</dt><dd>{rec.mpp.currentHomeScore ?? "-"}-{rec.mpp.currentAwayScore ?? "-"}</dd></div>
             </dl>
-          ) : <p>MPP à importer.</p>}
+          ) : <p>MPP à lire.</p>}
         </section>
 
         <section>
@@ -482,25 +429,6 @@ async function logout(setAuthenticated: (value: boolean) => void) {
   setAuthenticated(false);
 }
 
-async function enableBrowserAlerts(setBrowserAlerts: (value: NotificationPermission | "unsupported") => void) {
-  if (typeof Notification === "undefined") {
-    setBrowserAlerts("unsupported");
-    return;
-  }
-  setBrowserAlerts(await Notification.requestPermission());
-}
-
-function parseEventPayload(event: Event): null | { title: string; body: string; matchId: string } {
-  if (!("data" in event) || typeof event.data !== "string") return null;
-  try {
-    const payload = JSON.parse(event.data) as Partial<{ title: string; body: string; matchId: string }>;
-    if (!payload.title || !payload.body || !payload.matchId) return null;
-    return { title: payload.title, body: payload.body, matchId: payload.matchId };
-  } catch {
-    return null;
-  }
-}
-
 function labelOutcome(rec: Recommendation): string {
   if (rec.outcome === "home") return rec.match.homeTeam;
   if (rec.outcome === "away") return rec.match.awayTeam;
@@ -511,6 +439,10 @@ function labelOutcome(rec: Recommendation): string {
 function issueSummary(rec: Recommendation, outcome: "home" | "draw" | "away"): string {
   const item = rec.outcomeAnalysis[outcome];
   return `EV ${item.expectedPoints.toFixed(1)} | atk ${item.attackScore.toFixed(1)} | foule ${item.crowdPct.toFixed(0)}% | edge ${signedPctPoints(item.crowdEdge)}`;
+}
+
+function scoreText(home?: number | null, away?: number | null): string {
+  return home == null || away == null ? "-" : `${home}-${away}`;
 }
 
 function signedNumber(value: number): string {

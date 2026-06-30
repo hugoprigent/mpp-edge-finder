@@ -94,7 +94,7 @@ export function recommendMatch(match: Match, mpp?: MppSnapshot, market?: MarketS
       x2Candidate: false,
       x2Rank: null,
       reasons: [
-        !mpp ? "Données MPP manquantes: importe ou scrape la page MPP." : "",
+        !mpp ? "Données MPP manquantes: lance une lecture MPP." : "",
         !market ? "Marché Polymarket manquant: lance une synchronisation Polymarket." : ""
       ].filter(Boolean)
     };

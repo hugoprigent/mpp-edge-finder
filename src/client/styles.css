@@ -31,6 +31,13 @@ main {
   margin-bottom: 20px;
 }
 
+.topActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 h1,
 h2,
 p {
@@ -123,7 +130,6 @@ button:disabled {
 }
 
 .statusCard,
-.importBox,
 .x2Panel,
 .detailPanel,
 .message {
@@ -149,13 +155,6 @@ button:disabled {
   margin-bottom: 12px;
 }
 
-.buttonGroup {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
 .message {
   padding: 10px 12px;
   margin-bottom: 12px;
@@ -166,32 +165,17 @@ button:disabled {
   color: #ffe3a3;
 }
 
-.importBox,
 .x2Panel {
   padding: 14px;
   margin-bottom: 16px;
 }
 
-.importHeader,
 .sectionTitle {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
   margin-bottom: 10px;
-}
-
-textarea {
-  width: 100%;
-  min-height: 112px;
-  resize: vertical;
-  border: 1px solid #303932;
-  background: #0e100f;
-  color: #eff7ef;
-  border-radius: 6px;
-  padding: 10px;
-  font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  margin-bottom: 8px;
 }
 
 .tableWrap {
@@ -294,7 +278,7 @@ tbody tr.selected {
 }
 
 .detailGrid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   margin-bottom: 14px;
 }
 
@@ -385,7 +369,6 @@ h3 {
   }
 
   .topbar,
-  .importHeader,
   .sectionTitle {
     flex-direction: column;
     align-items: stretch;
