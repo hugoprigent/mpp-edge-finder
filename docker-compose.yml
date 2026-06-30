@@ -5,6 +5,9 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      DATA_DIR: /data
+      MPP_PROFILE_DIR: /data/mpp-chrome-profile
     ports:
       - "8787:8787"
     volumes:
