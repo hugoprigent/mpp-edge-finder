@@ -79,7 +79,10 @@ MPP_AUTO_SCRAPE=true
 MPP_POLL_MINUTES=10
 MPP_FAST_POLL_MINUTES=2
 MPP_PROFILE_DIR=./data/mpp-chrome-profile
+MPP_LOCAL_UTC_OFFSET_HOURS=0
 ```
+
+`MPP_LOCAL_UTC_OFFSET_HOURS` doit correspondre au fuseau affiché par le navigateur Playwright. Dans le conteneur Docker du VPS, Chromium tourne en UTC, donc `0` est le bon réglage. Si tu lances le scraper dans un navigateur local qui affiche l'heure de Paris en été, mets `2`.
 
 ## Auto-saisie MPP
 

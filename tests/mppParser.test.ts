@@ -57,7 +57,7 @@ describe("parseMppTokens", () => {
       pointsAway: 56,
       crowdAwayPct: 92
     });
-    expect(matches[0].kickoffUtc).toBe("2026-06-25T23:00:00.000Z");
+    expect(matches[0].kickoffUtc).toBe("2026-06-26T01:00:00.000Z");
   });
 
   it("marks knockout matches as 120-minute MPP scope", () => {
@@ -128,6 +128,6 @@ describe("parseMppTokens", () => {
       crowdAwayPct: 10,
       scope: "120min"
     });
-    expect(matches[0].kickoffUtc).toBe("2026-06-30T23:00:00.000Z");
+    expect(matches[0].kickoffUtc).toBe("2026-07-01T01:00:00.000Z");
   });
 });

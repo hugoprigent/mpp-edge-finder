@@ -35,7 +35,7 @@ export const config = {
   dashboardSessionSecret: process.env.DASHBOARD_SESSION_SECRET || randomBytes(32).toString("hex"),
   mppChampionshipId: numberEnv("MPP_CHAMPIONSHIP_ID", 8),
   mppYear: numberEnv("MPP_YEAR", 2026),
-  mppLocalUtcOffsetHours: numberEnv("MPP_LOCAL_UTC_OFFSET_HOURS", 2),
+  mppLocalUtcOffsetHours: numberEnv("MPP_LOCAL_UTC_OFFSET_HOURS", 0),
   mppProfileDir: path.resolve(root, process.env.MPP_PROFILE_DIR || "./data/mpp-chrome-profile"),
   mppHeadless: boolEnv("MPP_HEADLESS", false),
   mppAutoScrape: boolEnv("MPP_AUTO_SCRAPE", true),
