@@ -3,6 +3,7 @@ import { hoursBetween } from "../utils.js";
 import { teamsMatch } from "../../shared/teamAliases.js";
 import { parseMppTokens } from "./mppTextParser.js";
 import { extractVisibleTokens } from "./mppScraper.js";
+import { withMppBrowserLock } from "./mppBrowserLock.js";
 import type { Recommendation } from "../../shared/types.js";
 
 export type MppAutoPlayResult = {
@@ -18,6 +19,10 @@ export type MppAutoPlayResult = {
 };
 
 export async function applyMppRecommendation(rec: Recommendation, dryRun = config.mppAutoPlayDryRun): Promise<MppAutoPlayResult> {
+  return withMppBrowserLock(() => applyMppRecommendationUnlocked(rec, dryRun));
+}
+
+async function applyMppRecommendationUnlocked(rec: Recommendation, dryRun: boolean): Promise<MppAutoPlayResult> {
   if (!rec.score || rec.outcome === "needs-data") {
     return {
       ok: false,

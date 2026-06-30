@@ -1,8 +1,13 @@
 import { config } from "../config.js";
 import { parseMppTokens, type ParsedMppMatch } from "./mppTextParser.js";
+import { withMppBrowserLock } from "./mppBrowserLock.js";
 import type { ExtractedToken } from "../../shared/types.js";
 
 export async function scrapeMppWithPlaywright(): Promise<ParsedMppMatch[]> {
+  return withMppBrowserLock(scrapeMppWithPlaywrightUnlocked);
+}
+
+async function scrapeMppWithPlaywrightUnlocked(): Promise<ParsedMppMatch[]> {
   const { chromium } = await import("playwright");
   const context = await chromium.launchPersistentContext(config.mppProfileDir, {
     headless: config.mppHeadless,
