@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { config } from "./config.js";
 import { hoursBetween, nowIso, parseJson, stableId, uid } from "./utils.js";
 import { matchSimilarity, slugify, teamsMatch } from "../shared/teamAliases.js";
-import type { AppStatus, MarketSnapshot, Match, MatchScope, MppSnapshot, SpreadMarket, TotalMarket } from "../shared/types.js";
+import type { AppStatus, MarketSnapshot, Match, MatchScope, MppResult, MppSnapshot, SpreadMarket, TotalMarket } from "../shared/types.js";
 
 type DbMatch = Omit<Match, "source"> & { source: string };
 
@@ -63,6 +63,25 @@ export class Store {
         liquidity REAL,
         source TEXT NOT NULL,
         fetchedAt TEXT NOT NULL,
+        FOREIGN KEY(matchId) REFERENCES matches(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS mpp_results (
+        id TEXT PRIMARY KEY,
+        matchId TEXT NOT NULL UNIQUE,
+        actualHomeScore INTEGER NOT NULL,
+        actualAwayScore INTEGER NOT NULL,
+        userHomeScore INTEGER,
+        userAwayScore INTEGER,
+        basePoints INTEGER,
+        exactPoints INTEGER,
+        extraPoints INTEGER,
+        bonusPoints INTEGER,
+        totalPoints INTEGER,
+        quotationPoints INTEGER,
+        period TEXT,
+        matchStatus TEXT,
+        scrapedAt TEXT NOT NULL,
         FOREIGN KEY(matchId) REFERENCES matches(id) ON DELETE CASCADE
       );
 
@@ -201,6 +220,52 @@ export class Store {
     return snapshot;
   }
 
+  upsertMppResult(input: Omit<MppResult, "id">): MppResult {
+    const existing = this.db.prepare("SELECT id FROM mpp_results WHERE matchId = ?").get(input.matchId) as { id: string } | undefined;
+    const result: MppResult = { ...input, id: existing?.id ?? uid("result") };
+    this.db
+      .prepare(
+        `INSERT INTO mpp_results
+          (id, matchId, actualHomeScore, actualAwayScore, userHomeScore, userAwayScore,
+           basePoints, exactPoints, extraPoints, bonusPoints, totalPoints, quotationPoints,
+           period, matchStatus, scrapedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(matchId) DO UPDATE SET
+          actualHomeScore = excluded.actualHomeScore,
+          actualAwayScore = excluded.actualAwayScore,
+          userHomeScore = excluded.userHomeScore,
+          userAwayScore = excluded.userAwayScore,
+          basePoints = excluded.basePoints,
+          exactPoints = excluded.exactPoints,
+          extraPoints = excluded.extraPoints,
+          bonusPoints = excluded.bonusPoints,
+          totalPoints = excluded.totalPoints,
+          quotationPoints = excluded.quotationPoints,
+          period = excluded.period,
+          matchStatus = excluded.matchStatus,
+          scrapedAt = excluded.scrapedAt`
+      )
+      .run(
+        result.id,
+        result.matchId,
+        result.actualHomeScore,
+        result.actualAwayScore,
+        result.userHomeScore ?? null,
+        result.userAwayScore ?? null,
+        result.basePoints ?? null,
+        result.exactPoints ?? null,
+        result.extraPoints ?? null,
+        result.bonusPoints ?? null,
+        result.totalPoints ?? null,
+        result.quotationPoints ?? null,
+        result.period ?? null,
+        result.matchStatus ?? null,
+        result.scrapedAt
+      );
+    this.setSetting("lastMppResultsSync", result.scrapedAt);
+    return result;
+  }
+
   addMarketSnapshot(input: Omit<MarketSnapshot, "id">): MarketSnapshot {
     const snapshot: MarketSnapshot = { ...input, id: uid("market") };
     this.db
@@ -254,6 +319,16 @@ export class Store {
     return Object.fromEntries(rows.map((row) => [String(row.matchId), rowToMarket(row)]));
   }
 
+  latestMppResults(): Record<string, MppResult> {
+    const rows = this.db.prepare("SELECT * FROM mpp_results").all() as Array<Record<string, unknown>>;
+    return Object.fromEntries(rows.map((row) => [String(row.matchId), rowToMppResult(row)]));
+  }
+
+  mppResults(): MppResult[] {
+    const rows = this.db.prepare("SELECT * FROM mpp_results ORDER BY scrapedAt DESC").all() as Array<Record<string, unknown>>;
+    return rows.map(rowToMppResult);
+  }
+
   mppHistory(matchId: string, limit = 20): MppSnapshot[] {
     const rows = this.db
       .prepare("SELECT * FROM mpp_snapshots WHERE matchId = ? ORDER BY scrapedAt DESC LIMIT ?")
@@ -266,6 +341,20 @@ export class Store {
       .prepare("SELECT * FROM market_snapshots WHERE matchId = ? ORDER BY fetchedAt DESC LIMIT ?")
       .all(matchId, limit) as Array<Record<string, unknown>>;
     return rows.map(rowToMarket);
+  }
+
+  mppSnapshotBefore(matchId: string, iso: string): MppSnapshot | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM mpp_snapshots WHERE matchId = ? AND scrapedAt <= ? ORDER BY scrapedAt DESC LIMIT 1")
+      .get(matchId, iso) as Record<string, unknown> | undefined;
+    return row ? rowToMpp(row) : undefined;
+  }
+
+  marketSnapshotBefore(matchId: string, iso: string): MarketSnapshot | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM market_snapshots WHERE matchId = ? AND fetchedAt <= ? ORDER BY fetchedAt DESC LIMIT 1")
+      .get(matchId, iso) as Record<string, unknown> | undefined;
+    return row ? rowToMarket(row) : undefined;
   }
 
   alreadyNotified(matchId: string, type: string): boolean {
@@ -299,6 +388,7 @@ export class Store {
       matches: count("matches"),
       mppSnapshots: count("mpp_snapshots"),
       marketSnapshots: count("market_snapshots"),
+      mppResults: count("mpp_results"),
       lastMppSync: this.getSetting("lastMppSync"),
       lastPolymarketSync: this.getSetting("lastPolymarketSync"),
       lastMppScrapeError: this.getSetting("lastMppScrapeError") || null,
@@ -330,8 +420,20 @@ export class Store {
     if (duplicateId === targetId || !this.getMatch(duplicateId) || !this.getMatch(targetId)) return;
     this.db.prepare("UPDATE mpp_snapshots SET matchId = ? WHERE matchId = ?").run(targetId, duplicateId);
     this.db.prepare("UPDATE market_snapshots SET matchId = ? WHERE matchId = ?").run(targetId, duplicateId);
+    this.mergeDuplicateResult(duplicateId, targetId);
     this.db.prepare("DELETE FROM notifications WHERE matchId = ?").run(duplicateId);
     this.db.prepare("DELETE FROM matches WHERE id = ?").run(duplicateId);
+  }
+
+  private mergeDuplicateResult(duplicateId: string, targetId: string): void {
+    const duplicate = this.db.prepare("SELECT * FROM mpp_results WHERE matchId = ?").get(duplicateId) as Record<string, unknown> | undefined;
+    if (!duplicate) return;
+    const target = this.db.prepare("SELECT id FROM mpp_results WHERE matchId = ?").get(targetId) as { id: string } | undefined;
+    if (target) {
+      this.db.prepare("DELETE FROM mpp_results WHERE matchId = ?").run(duplicateId);
+      return;
+    }
+    this.db.prepare("UPDATE mpp_results SET matchId = ? WHERE matchId = ?").run(targetId, duplicateId);
   }
 
   private mergeCompatibleDuplicates(target: Match): void {
@@ -391,6 +493,26 @@ function rowToMpp(row: Record<string, unknown>): MppSnapshot {
     currentHomeScore: row.currentHomeScore == null ? null : Number(row.currentHomeScore),
     currentAwayScore: row.currentAwayScore == null ? null : Number(row.currentAwayScore),
     rawSource: String(row.rawSource) as MppSnapshot["rawSource"],
+    scrapedAt: String(row.scrapedAt)
+  };
+}
+
+function rowToMppResult(row: Record<string, unknown>): MppResult {
+  return {
+    id: String(row.id),
+    matchId: String(row.matchId),
+    actualHomeScore: Number(row.actualHomeScore),
+    actualAwayScore: Number(row.actualAwayScore),
+    userHomeScore: row.userHomeScore == null ? null : Number(row.userHomeScore),
+    userAwayScore: row.userAwayScore == null ? null : Number(row.userAwayScore),
+    basePoints: row.basePoints == null ? null : Number(row.basePoints),
+    exactPoints: row.exactPoints == null ? null : Number(row.exactPoints),
+    extraPoints: row.extraPoints == null ? null : Number(row.extraPoints),
+    bonusPoints: row.bonusPoints == null ? null : Number(row.bonusPoints),
+    totalPoints: row.totalPoints == null ? null : Number(row.totalPoints),
+    quotationPoints: row.quotationPoints == null ? null : Number(row.quotationPoints),
+    period: row.period == null ? null : String(row.period),
+    matchStatus: row.matchStatus == null ? null : String(row.matchStatus),
     scrapedAt: String(row.scrapedAt)
   };
 }

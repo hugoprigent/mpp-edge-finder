@@ -131,6 +131,7 @@ button:disabled {
 
 .statusCard,
 .x2Panel,
+.backtestPanel,
 .detailPanel,
 .message {
   border: 1px solid #303932;
@@ -168,6 +169,29 @@ button:disabled {
 .x2Panel {
   padding: 14px;
   margin-bottom: 16px;
+}
+
+.backtestPanel {
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.backtestGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.variantList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.backtestTable {
+  min-width: 760px;
 }
 
 .sectionTitle {
@@ -439,7 +463,8 @@ h3 {
   .detailColumns,
   .detailColumns.two,
   .marketBands,
-  .calcGrid {
+  .calcGrid,
+  .backtestGrid {
     grid-template-columns: 1fr;
   }
 }

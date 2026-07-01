@@ -35,6 +35,24 @@ export type MppSnapshot = {
   scrapedAt: string;
 };
 
+export type MppResult = {
+  id: string;
+  matchId: string;
+  actualHomeScore: number;
+  actualAwayScore: number;
+  userHomeScore?: number | null;
+  userAwayScore?: number | null;
+  basePoints?: number | null;
+  exactPoints?: number | null;
+  extraPoints?: number | null;
+  bonusPoints?: number | null;
+  totalPoints?: number | null;
+  quotationPoints?: number | null;
+  period?: string | null;
+  matchStatus?: string | null;
+  scrapedAt: string;
+};
+
 export type MarketSnapshot = {
   id: string;
   matchId: string;
@@ -102,6 +120,44 @@ export type Recommendation = {
   reasons: string[];
 };
 
+export type BacktestVariantSummary = {
+  strategy: StrategyMode;
+  playable: number;
+  points: number;
+  correctOutcomes: number;
+  exactScores: number;
+};
+
+export type BacktestRow = {
+  match: Match;
+  result: MppResult;
+  decisionAt: string;
+  skippedReason?: string | null;
+  recommendation?: Recommendation | null;
+  botPoints: number;
+  userPoints?: number | null;
+  correctOutcome: boolean;
+  exactScore: boolean;
+  mppSnapshotAt?: string | null;
+  marketSnapshotAt?: string | null;
+  variants: BacktestVariantSummary[];
+};
+
+export type BacktestReport = {
+  generatedAt: string;
+  leadSeconds: number;
+  totalResults: number;
+  playable: number;
+  skipped: number;
+  botPoints: number;
+  userPoints: number;
+  deltaPoints: number;
+  correctOutcomes: number;
+  exactScores: number;
+  variants: BacktestVariantSummary[];
+  rows: BacktestRow[];
+};
+
 export type OutcomeAnalysis = {
   probability: number;
   points: number;
@@ -122,6 +178,7 @@ export type AppStatus = {
   matches: number;
   mppSnapshots: number;
   marketSnapshots: number;
+  mppResults: number;
   lastMppSync?: string | null;
   lastPolymarketSync?: string | null;
   lastMppScrapeError?: string | null;

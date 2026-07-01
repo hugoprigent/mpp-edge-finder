@@ -2,7 +2,7 @@ import { nowIso } from "../utils.js";
 import { Store } from "../store.js";
 import { fetchPolymarketSports } from "./polymarket.js";
 import { parseMppImport, type ParsedMppMatch } from "./mppTextParser.js";
-import { scrapeMppWithPlaywright } from "./mppScraper.js";
+import { scrapeMppDataWithPlaywright } from "./mppScraper.js";
 import type { SyncResult } from "../../shared/types.js";
 
 export async function syncPolymarket(store: Store): Promise<SyncResult> {
@@ -43,12 +43,32 @@ export async function importMppText(store: Store, text: string, rawSource: "dom"
 }
 
 export async function scrapeMpp(store: Store): Promise<SyncResult> {
-  const parsed = await scrapeMppWithPlaywright();
-  return importParsedMpp(store, parsed, "playwright");
+  const data = await scrapeMppDataWithPlaywright();
+  return importParsedMpp(store, data.matches, data.rawSource, data.results);
 }
 
-export function importParsedMpp(store: Store, parsed: ParsedMppMatch[], rawSource: "dom" | "playwright" | "api"): SyncResult {
+export function importParsedMpp(
+  store: Store,
+  parsed: ParsedMppMatch[],
+  rawSource: "dom" | "playwright" | "api",
+  results: Array<{
+    mppKey: string;
+    actualHomeScore: number;
+    actualAwayScore: number;
+    userHomeScore?: number | null;
+    userAwayScore?: number | null;
+    basePoints?: number | null;
+    exactPoints?: number | null;
+    extraPoints?: number | null;
+    bonusPoints?: number | null;
+    totalPoints?: number | null;
+    quotationPoints?: number | null;
+    period?: string | null;
+    matchStatus?: string | null;
+  }> = []
+): SyncResult {
   const scrapedAt = nowIso();
+  const matchIdByMppKey = new Map<string, string>();
   for (const item of parsed) {
     const match = store.upsertMatch({
       kickoffUtc: item.kickoffUtc,
@@ -59,6 +79,7 @@ export function importParsedMpp(store: Store, parsed: ParsedMppMatch[], rawSourc
       source: "mpp",
       mppKey: item.mppKey
     });
+    matchIdByMppKey.set(item.mppKey, match.id);
     store.addMppSnapshot({
       matchId: match.id,
       pointsHome: item.pointsHome,
@@ -73,9 +94,34 @@ export function importParsedMpp(store: Store, parsed: ParsedMppMatch[], rawSourc
       scrapedAt
     });
   }
+  let importedResults = 0;
+  for (const result of results) {
+    const matchId = matchIdByMppKey.get(result.mppKey);
+    if (!matchId) continue;
+    store.upsertMppResult({
+      matchId,
+      actualHomeScore: result.actualHomeScore,
+      actualAwayScore: result.actualAwayScore,
+      userHomeScore: result.userHomeScore,
+      userAwayScore: result.userAwayScore,
+      basePoints: result.basePoints,
+      exactPoints: result.exactPoints,
+      extraPoints: result.extraPoints,
+      bonusPoints: result.bonusPoints,
+      totalPoints: result.totalPoints,
+      quotationPoints: result.quotationPoints,
+      period: result.period,
+      matchStatus: result.matchStatus,
+      scrapedAt
+    });
+    importedResults += 1;
+  }
   return {
     ok: parsed.length > 0,
-    message: parsed.length > 0 ? `${parsed.length} matchs MPP lus.` : "Aucun match MPP reconnu pendant la lecture.",
+    message:
+      parsed.length > 0
+        ? `${parsed.length} matchs MPP lus${importedResults ? `, ${importedResults} résultats stockés` : ""}.`
+        : "Aucun match MPP reconnu pendant la lecture.",
     importedMatches: parsed.length
   };
 }

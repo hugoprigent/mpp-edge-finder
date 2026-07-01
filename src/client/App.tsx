@@ -1,8 +1,9 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import type { AppStatus, MarketSnapshot, MppSnapshot, Recommendation, SyncResult } from "../shared/types.js";
+import type { AppStatus, BacktestReport, BacktestRow, MarketSnapshot, MppSnapshot, Recommendation, SyncResult } from "../shared/types.js";
 
 type RecommendationsResponse = { recommendations: Recommendation[] };
 type MatchHistoryResponse = { mppHistory: MppSnapshot[]; marketHistory: MarketSnapshot[] };
+type BacktestResponse = { backtest: BacktestReport };
 
 export function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -12,14 +13,17 @@ export function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [history, setHistory] = useState<MatchHistoryResponse | null>(null);
+  const [backtest, setBacktest] = useState<BacktestReport | null>(null);
 
   async function refresh() {
-    const [statusRes, recRes] = await Promise.all([
+    const [statusRes, recRes, backtestRes] = await Promise.all([
       fetchJson<AppStatus>("/api/status"),
-      fetchJson<RecommendationsResponse>("/api/recommendations?window=120")
+      fetchJson<RecommendationsResponse>("/api/recommendations?window=120"),
+      fetchJson<BacktestResponse>("/api/backtest/mpp")
     ]);
     setStatus(statusRes);
     setRecommendations(recRes.recommendations);
+    setBacktest(backtestRes.backtest);
   }
 
   async function runAction(name: string, action: () => Promise<SyncResult | unknown>) {
@@ -98,6 +102,7 @@ export function App() {
         <StatusCard label="Matchs suivis" value={status?.matches ?? 0} />
         <StatusCard label="MPP" value={formatDate(status?.lastMppSync)} sub={status?.lastMppScrapeError ? "à vérifier" : "scrape auto"} />
         <StatusCard label="Polymarket" value={formatDate(status?.lastPolymarketSync)} sub={status?.polymarketLeagueSlug ?? "fwc"} />
+        <StatusCard label="Résultats" value={status?.mppResults ?? 0} sub={backtest ? `${backtest.playable} simulables` : "MPP"} />
         <StatusCard
           label="Saisie auto"
           value={autoPlayLabel(status)}
@@ -135,6 +140,8 @@ export function App() {
           <p>Pas encore assez de données synchronisées.</p>
         )}
       </section>
+
+      {backtest && <BacktestPanel backtest={backtest} />}
 
       <section>
         <div className="sectionTitle">
@@ -267,6 +274,85 @@ function LoginScreen({
         {message && <div className="message warning">{message}</div>}
       </form>
     </main>
+  );
+}
+
+function BacktestPanel({ backtest }: { backtest: BacktestReport }) {
+  const latestRows = backtest.rows.slice(0, 10);
+  const bestVariant = backtest.variants.slice().sort((a, b) => b.points - a.points)[0];
+
+  return (
+    <section className="backtestPanel">
+      <div className="sectionTitle">
+        <div>
+          <h2>Simulation algo</h2>
+          <span>T-{Math.round(backtest.leadSeconds / 60)} min · {backtest.playable}/{backtest.totalResults} résultats simulables</span>
+        </div>
+        <span>MAJ {formatDate(backtest.generatedAt)}</span>
+      </div>
+
+      <div className="backtestGrid">
+        <Metric label="Algo actuel" value={`${backtest.botPoints} pts`} sub={`${backtest.correctOutcomes} issues justes · ${backtest.exactScores} exacts`} />
+        <Metric label="Compte MPP" value={`${backtest.userPoints} pts`} sub={`écart ${signedInteger(backtest.deltaPoints)} pts`} />
+        <Metric label="Données manquantes" value={`${backtest.skipped}`} sub="pas de snapshot avant décision" />
+        <Metric label="Meilleure variante" value={bestVariant ? bestVariant.strategy : "-"} sub={bestVariant ? `${bestVariant.points} pts sur ${bestVariant.playable} matchs` : "à venir"} />
+      </div>
+
+      <div className="variantList">
+        {backtest.variants.map((variant) => (
+          <span className="dataChip" key={variant.strategy}>
+            {variant.strategy}: {variant.points} pts · {variant.correctOutcomes}/{variant.playable} issues · {variant.exactScores} exacts
+          </span>
+        ))}
+      </div>
+
+      <div className="miniTableWrap">
+        <table className="miniTable backtestTable">
+          <thead>
+            <tr>
+              <th>Match</th>
+              <th>Réel</th>
+              <th>Algo</th>
+              <th>Compte</th>
+              <th>Données</th>
+            </tr>
+          </thead>
+          <tbody>
+            {latestRows.map((row) => (
+              <BacktestTableRow row={row} key={`${row.match.id}-${row.result.id}`} />
+            ))}
+            {latestRows.length === 0 && (
+              <tr><td colSpan={5}>Aucun résultat MPP stocké pour l’instant.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function BacktestTableRow({ row }: { row: BacktestRow }) {
+  const rec = row.recommendation;
+  return (
+    <tr className={row.skippedReason ? "muted" : ""}>
+      <td>
+        <strong>{row.match.homeTeam} - {row.match.awayTeam}</strong>
+        <small>{formatKickoff(row.match.kickoffUtc)}</small>
+      </td>
+      <td>{row.result.actualHomeScore}-{row.result.actualAwayScore}</td>
+      <td>
+        {row.skippedReason ? row.skippedReason : `${rec?.play.instruction ?? "-"} · ${row.botPoints} pts`}
+        {!row.skippedReason && <small>{row.correctOutcome ? "issue juste" : "issue fausse"}{row.exactScore ? " · exact" : ""}</small>}
+      </td>
+      <td>
+        {row.userPoints ?? 0} pts
+        <small>{scoreText(row.result.userHomeScore, row.result.userAwayScore)}</small>
+      </td>
+      <td>
+        <small>MPP {formatDate(row.mppSnapshotAt)}</small>
+        <small>Poly {formatDate(row.marketSnapshotAt)}</small>
+      </td>
+    </tr>
   );
 }
 
@@ -552,6 +638,10 @@ function scoreText(home?: number | null, away?: number | null): string {
 
 function signedNumber(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+}
+
+function signedInteger(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value}`;
 }
 
 function signedPctPoints(value: number): string {

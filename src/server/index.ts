@@ -7,6 +7,7 @@ import { isAuthenticated, loginCookie, logoutCookie, validPin } from "./auth.js"
 import { config } from "./config.js";
 import { Store } from "./store.js";
 import { buildRecommendations } from "./services/recommender.js";
+import { buildMppBacktest } from "./services/backtest.js";
 import { getHermesHealth, getHermesManifest, getHermesRecommendations, sendManualBriefing } from "./services/hermes.js";
 import { applyManualMppScore, applyMppRecommendation } from "./services/mppAutoPlayer.js";
 import { scrapeMpp, syncPolymarket, importMppText } from "./services/sync.js";
@@ -105,6 +106,13 @@ app.get<{ Params: { matchId: string }; Querystring: { limit?: string } }>("/api/
 app.get<{ Querystring: { window?: string } }>("/api/recommendations", async (request) => {
   const windowHours = Number(request.query.window);
   return { recommendations: recommendations(Number.isFinite(windowHours) ? windowHours : 96) };
+});
+
+app.get<{ Querystring: { leadSeconds?: string } }>("/api/backtest/mpp", async (request) => {
+  const leadSeconds = Number(request.query.leadSeconds);
+  return {
+    backtest: buildMppBacktest(store, Number.isFinite(leadSeconds) ? Math.max(0, Math.min(86_400, leadSeconds)) : undefined)
+  };
 });
 
 app.post("/api/sync/polymarket/run", async () => {

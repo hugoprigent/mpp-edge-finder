@@ -20,6 +20,10 @@ type LatestData = {
   marketByMatch: Record<string, MarketSnapshot>;
 };
 
+type RecommendOptions = {
+  strategy?: StrategyMode;
+};
+
 const outcomes: Outcome[] = ["home", "draw", "away"];
 const PAST_MATCH_GRACE_MS = 5 * 60_000;
 
@@ -70,9 +74,9 @@ function kickoffSort(a: Recommendation, b: Recommendation): number {
   return new Date(a.match.kickoffUtc).getTime() - new Date(b.match.kickoffUtc).getTime();
 }
 
-export function recommendMatch(match: Match, mpp?: MppSnapshot, market?: MarketSnapshot): Recommendation {
+export function recommendMatch(match: Match, mpp?: MppSnapshot, market?: MarketSnapshot, options: RecommendOptions = {}): Recommendation {
   const emptyEvs = { home: 0, draw: 0, away: 0 };
-  const strategy = config.mppStrategyMode;
+  const strategy = options.strategy ?? config.mppStrategyMode;
   if (!mpp || !market) {
     return {
       match,
