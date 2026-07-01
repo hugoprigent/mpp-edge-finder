@@ -24,7 +24,9 @@ export function buildMppBacktest(store: Store, leadSeconds = config.mppAutoPlayL
     if (!match) continue;
 
     const decisionAt = new Date(new Date(match.kickoffUtc).getTime() - leadSeconds * 1000).toISOString();
-    const mpp = store.mppSnapshotBefore(match.id, decisionAt);
+    const preDecisionMpp = store.mppSnapshotBefore(match.id, decisionAt);
+    const historicalMpp = preDecisionMpp ?? store.mppHistory(match.id, 1)[0];
+    const mpp = historicalMpp;
     const market = store.marketSnapshotBefore(match.id, decisionAt);
 
     if (!mpp || !market) {
@@ -39,6 +41,7 @@ export function buildMppBacktest(store: Store, leadSeconds = config.mppAutoPlayL
         correctOutcome: false,
         exactScore: false,
         mppSnapshotAt: mpp?.scrapedAt ?? null,
+        mppSnapshotMode: mpp ? (preDecisionMpp ? "pre-decision" : "historical-result") : null,
         marketSnapshotAt: market?.fetchedAt ?? null,
         variants: []
       });
@@ -69,6 +72,7 @@ export function buildMppBacktest(store: Store, leadSeconds = config.mppAutoPlayL
       correctOutcome: score.correctOutcome,
       exactScore: score.exactScore,
       mppSnapshotAt: mpp.scrapedAt,
+      mppSnapshotMode: preDecisionMpp ? "pre-decision" : "historical-result",
       marketSnapshotAt: market.fetchedAt,
       variants
     });

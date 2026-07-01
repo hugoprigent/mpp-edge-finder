@@ -139,6 +139,7 @@ export type BacktestRow = {
   correctOutcome: boolean;
   exactScore: boolean;
   mppSnapshotAt?: string | null;
+  mppSnapshotMode?: "pre-decision" | "historical-result" | null;
   marketSnapshotAt?: string | null;
   variants: BacktestVariantSummary[];
 };

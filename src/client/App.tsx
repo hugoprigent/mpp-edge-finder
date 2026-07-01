@@ -7,6 +7,7 @@ type BacktestResponse = { backtest: BacktestReport };
 
 export function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [view, setView] = useState<"live" | "backtest">(() => (window.location.pathname === "/backtest" ? "backtest" : "live"));
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [message, setMessage] = useState("");
@@ -16,14 +17,21 @@ export function App() {
   const [backtest, setBacktest] = useState<BacktestReport | null>(null);
 
   async function refresh() {
-    const [statusRes, recRes, backtestRes] = await Promise.all([
+    const [statusRes, recRes] = await Promise.all([
       fetchJson<AppStatus>("/api/status"),
-      fetchJson<RecommendationsResponse>("/api/recommendations?window=120"),
-      fetchJson<BacktestResponse>("/api/backtest/mpp")
+      fetchJson<RecommendationsResponse>("/api/recommendations?window=120")
     ]);
     setStatus(statusRes);
     setRecommendations(recRes.recommendations);
-    setBacktest(backtestRes.backtest);
+    if (view === "backtest") {
+      const backtestRes = await fetchJson<BacktestResponse>("/api/backtest/mpp");
+      setBacktest(backtestRes.backtest);
+    }
+  }
+
+  function switchView(nextView: "live" | "backtest") {
+    setView(nextView);
+    window.history.pushState(null, "", nextView === "backtest" ? "/backtest" : "/");
   }
 
   async function runAction(name: string, action: () => Promise<SyncResult | unknown>) {
@@ -44,6 +52,12 @@ export function App() {
     void checkAuth(setAuthenticated).then((ok) => {
       if (ok) void refresh();
     });
+  }, [view]);
+
+  useEffect(() => {
+    const onPopState = () => setView(window.location.pathname === "/backtest" ? "backtest" : "live");
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   useEffect(() => {
@@ -55,7 +69,7 @@ export function App() {
     });
     events.addEventListener("error", () => void refresh());
     return () => events.close();
-  }, [authenticated]);
+  }, [authenticated, view]);
 
   useEffect(() => {
     if (!selectedMatchId) {
@@ -93,6 +107,8 @@ export function App() {
           <p>Décisions MPP en direct: points, foule, marché Polymarket et saisie automatique.</p>
         </div>
         <div className="topActions">
+          <button className={view === "live" ? "activeButton" : ""} onClick={() => switchView("live")}>Live</button>
+          <button className={view === "backtest" ? "activeButton" : ""} onClick={() => switchView("backtest")}>Backtest</button>
           <a className="mppLink" href="https://mpp.football/" target="_blank" rel="noreferrer">Ouvrir MPP</a>
           <button onClick={() => void logout(setAuthenticated)}>Verrouiller</button>
         </div>
@@ -102,7 +118,7 @@ export function App() {
         <StatusCard label="Matchs suivis" value={status?.matches ?? 0} />
         <StatusCard label="MPP" value={formatDate(status?.lastMppSync)} sub={status?.lastMppScrapeError ? "à vérifier" : "scrape auto"} />
         <StatusCard label="Polymarket" value={formatDate(status?.lastPolymarketSync)} sub={status?.polymarketLeagueSlug ?? "fwc"} />
-        <StatusCard label="Résultats" value={status?.mppResults ?? 0} sub={backtest ? `${backtest.playable} simulables` : "MPP"} />
+        <StatusCard label="Résultats" value={status?.mppResults ?? 0} sub={view === "backtest" && backtest ? `${backtest.playable} simulables` : "page backtest"} />
         <StatusCard
           label="Saisie auto"
           value={autoPlayLabel(status)}
@@ -120,6 +136,11 @@ export function App() {
         <button disabled={Boolean(busy)} onClick={() => runAction("scrape", () => post("/api/scrape/mpp/run"))}>
           {busy === "scrape" ? "Lecture..." : "Lire MPP"}
         </button>
+        {view === "backtest" && (
+          <button disabled={Boolean(busy)} onClick={() => runAction("poly-history", () => post("/api/sync/polymarket/history/run"))}>
+            {busy === "poly-history" ? "Import..." : "Importer historique"}
+          </button>
+        )}
         <button disabled={Boolean(busy) || actionable.length === 0} onClick={() => runAction("dryrun", () => post("/api/automation/mpp/apply", { dryRun: true }))}>
           {busy === "dryrun" ? "Test..." : "Tester contrôle MPP"}
         </button>
@@ -130,6 +151,45 @@ export function App() {
 
       {message && <div className="message">{message}</div>}
 
+      {view === "backtest" ? (
+        backtest ? <BacktestPanel backtest={backtest} /> : <section className="x2Panel"><h2>Backtest</h2><p>Chargement...</p></section>
+      ) : (
+        <LiveView
+          recommendations={recommendations}
+          actionable={actionable}
+          missing={missing}
+          x2={x2}
+          selectedRec={selectedRec}
+          selectedMatchId={selectedMatchId}
+          setSelectedMatchId={setSelectedMatchId}
+          history={history}
+        />
+      )}
+    </main>
+  );
+}
+
+function LiveView({
+  recommendations,
+  actionable,
+  missing,
+  x2,
+  selectedRec,
+  selectedMatchId,
+  setSelectedMatchId,
+  history
+}: {
+  recommendations: Recommendation[];
+  actionable: Recommendation[];
+  missing: number;
+  x2: Recommendation | undefined;
+  selectedRec: Recommendation | null;
+  selectedMatchId: string | null;
+  setSelectedMatchId: (value: string | null) => void;
+  history: MatchHistoryResponse | null;
+}) {
+  return (
+    <>
       <section className="x2Panel">
         <h2>Décision prioritaire</h2>
         {x2 ? (
@@ -140,8 +200,6 @@ export function App() {
           <p>Pas encore assez de données synchronisées.</p>
         )}
       </section>
-
-      {backtest && <BacktestPanel backtest={backtest} />}
 
       <section>
         <div className="sectionTitle">
@@ -222,7 +280,7 @@ export function App() {
         </div>
         {selectedRec && <MatchDetail rec={selectedRec} history={selectedRec.match.id === selectedMatchId ? history : null} onClose={() => setSelectedMatchId(null)} />}
       </section>
-    </main>
+    </>
   );
 }
 
@@ -350,6 +408,7 @@ function BacktestTableRow({ row }: { row: BacktestRow }) {
       </td>
       <td>
         <small>MPP {formatDate(row.mppSnapshotAt)}</small>
+        {row.mppSnapshotMode && <small>{row.mppSnapshotMode === "pre-decision" ? "pré-match" : "historique MPP"}</small>}
         <small>Poly {formatDate(row.marketSnapshotAt)}</small>
       </td>
     </tr>

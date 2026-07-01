@@ -10,6 +10,7 @@ import { buildRecommendations } from "./services/recommender.js";
 import { buildMppBacktest } from "./services/backtest.js";
 import { getHermesHealth, getHermesManifest, getHermesRecommendations, sendManualBriefing } from "./services/hermes.js";
 import { applyManualMppScore, applyMppRecommendation } from "./services/mppAutoPlayer.js";
+import { backfillHistoricalPolymarket } from "./services/polymarketHistory.js";
 import { scrapeMpp, syncPolymarket, importMppText } from "./services/sync.js";
 import { formatRecommendationMessage, formatRecommendationPlainMessage, sendNtfy, sendTelegram } from "./services/notifications.js";
 import { startSchedulers, triggerAvailableMppAutoPlay } from "./services/scheduler.js";
@@ -119,6 +120,12 @@ app.post("/api/sync/polymarket/run", async () => {
   const result = await syncPolymarket(store);
   broadcast("sync", result);
   triggerAvailableMppAutoPlay(store, broadcast, "manual-polymarket");
+  return result;
+});
+
+app.post("/api/sync/polymarket/history/run", async () => {
+  const result = await backfillHistoricalPolymarket(store);
+  broadcast("sync", result);
   return result;
 });
 

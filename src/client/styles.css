@@ -81,6 +81,11 @@ button:hover,
   background: #2a332d;
 }
 
+.activeButton {
+  border-color: #60d394;
+  background: #24432f;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
