@@ -178,7 +178,10 @@ export function App() {
                     {rec.mpp ? `${rec.mpp.pointsHome}/${rec.mpp.pointsDraw}/${rec.mpp.pointsAway}` : "à lire"}
                     {rec.mpp ? <small>Saisi {scoreText(rec.mpp.currentHomeScore, rec.mpp.currentAwayScore)}</small> : null}
                   </td>
-                  <td>{rec.market ? `${pct(rec.market.pHome)} / ${pct(rec.market.pDraw)} / ${pct(rec.market.pAway)}` : "à sync"}</td>
+                  <td>
+                    {rec.market ? `${pct(rec.market.pHome)} / ${pct(rec.market.pDraw)} / ${pct(rec.market.pAway)}` : "à sync"}
+                    {rec.market ? <small>{marketTableSummary(rec.market)}</small> : null}
+                  </td>
                   <td>
                     <strong className="playText">{rec.play.instruction}</strong>
                     {rec.score ? <small>{labelOutcome(rec)}, bonus rareté +{rec.score.estimatedBonus}</small> : null}
@@ -270,6 +273,7 @@ function LoginScreen({
 function MatchDetail({ rec, history, onClose }: { rec: Recommendation; history: MatchHistoryResponse | null; onClose: () => void }) {
   const marketHistory = history?.marketHistory ?? [];
   const mppHistory = history?.mppHistory ?? [];
+  const selectedAnalysis = rec.outcome === "needs-data" ? null : rec.outcomeAnalysis[rec.outcome];
 
   return (
     <aside className="detailPanel">
@@ -286,7 +290,7 @@ function MatchDetail({ rec, history, onClose }: { rec: Recommendation; history: 
         <Metric label="EV" value={`${rec.totalEv.toFixed(1)} pts`} sub={`edge EV ${signedNumber(rec.evEdge)}`} />
         <Metric label="Objectif" value={`${rec.strategyScore.toFixed(1)} pts`} sub={`${rec.strategy} | leverage ${rec.leverage.toFixed(1)} | foule ${signedPctPoints(rec.crowdEdge)}`} />
         <Metric label="Confiance" value={rec.confidence} sub={rec.x2Candidate ? "spot X2" : rec.x2Rank ? `X2 #${rec.x2Rank}` : "hors X2"} />
-        <Metric label="Snapshots" value={`${mppHistory.length} MPP / ${marketHistory.length} marchés`} sub={rec.market ? `vol. ${compactNumber(rec.market.volume)}` : "marché manquant"} />
+        <Metric label="Marché" value={rec.market ? `${pct(rec.market.pHome)} / ${pct(rec.market.pDraw)} / ${pct(rec.market.pAway)}` : "manquant"} sub={rec.market ? `vol. ${compactNumber(rec.market.volume)} | liq. ${compactNumber(rec.market.liquidity)}` : "Polymarket à sync"} />
       </div>
 
       <div className="detailColumns">
@@ -314,13 +318,39 @@ function MatchDetail({ rec, history, onClose }: { rec: Recommendation; history: 
           <h3>Polymarket</h3>
           {rec.market ? (
             <dl className="kvList">
-              <div><dt>1N2</dt><dd>{pct(rec.market.pHome)} / {pct(rec.market.pDraw)} / {pct(rec.market.pAway)}</dd></div>
-              <div><dt>Totals</dt><dd>{rec.market.totals.slice(0, 4).map((total) => `O${total.threshold} ${pct(total.pOver)}`).join(" | ") || "-"}</dd></div>
-              <div><dt>Spreads</dt><dd>{rec.market.spreads.slice(0, 3).map((spread) => `${spread.team} ${spread.line}: ${pct(spread.pCover)}`).join(" | ") || "-"}</dd></div>
+              <div><dt>1N2 proba</dt><dd>{pct(rec.market.pHome)} / {pct(rec.market.pDraw)} / {pct(rec.market.pAway)}</dd></div>
+              <div><dt>Cotes implicites</dt><dd>{odds(rec.market.pHome)} / {odds(rec.market.pDraw)} / {odds(rec.market.pAway)}</dd></div>
+              <div><dt>Volume</dt><dd>{compactNumber(rec.market.volume)} | liq. {compactNumber(rec.market.liquidity)}</dd></div>
+              <div><dt>Sync</dt><dd>{formatDate(rec.market.fetchedAt)}</dd></div>
+              <div><dt>Slug</dt><dd>{rec.match.polymarketSlug ?? "-"}</dd></div>
             </dl>
           ) : <p>Polymarket à synchroniser.</p>}
         </section>
       </div>
+
+      {rec.market && (
+        <div className="marketBands">
+          <section>
+            <h3>Totals Polymarket</h3>
+            <div className="chipList">
+              {rec.market.totals.slice(0, 8).map((total) => (
+                <span className="dataChip" key={total.threshold}>O{total.threshold}: {pct(total.pOver)} / U{total.threshold}: {pct(total.pUnder)}</span>
+              ))}
+              {rec.market.totals.length === 0 && <span className="dataChip mutedChip">aucun total</span>}
+            </div>
+          </section>
+
+          <section>
+            <h3>Spreads Polymarket</h3>
+            <div className="chipList">
+              {rec.market.spreads.slice(0, 10).map((spread, index) => (
+                <span className="dataChip" key={`${spread.team}-${spread.line}-${index}`}>{spreadLabel(rec, spread.team)} {spread.line}: {pct(spread.pCover)}</span>
+              ))}
+              {rec.market.spreads.length === 0 && <span className="dataChip mutedChip">aucun spread</span>}
+            </div>
+          </section>
+        </div>
+      )}
 
       <div className="detailColumns two">
         <section>
@@ -359,6 +389,29 @@ function MatchDetail({ rec, history, onClose }: { rec: Recommendation; history: 
           </div>
         </section>
       </div>
+
+      {selectedAnalysis && rec.score && (
+        <section className="calcPanel">
+          <h3>Calcul reco</h3>
+          <div className="calcGrid">
+            <div>
+              <span>Issue choisie</span>
+              <strong>{labelOutcome(rec)}</strong>
+              <small>{pct(selectedAnalysis.probability)} x {selectedAnalysis.points} pts = {selectedAnalysis.expectedPoints.toFixed(1)} pts EV</small>
+            </div>
+            <div>
+              <span>Objectif {rec.strategy}</span>
+              <strong>{selectedAnalysis.attackScore.toFixed(1)} + {rec.score.objective.toFixed(1)} = {rec.strategyScore.toFixed(1)}</strong>
+              <small>leverage {selectedAnalysis.leverage.toFixed(1)} | foule {signedPctPoints(selectedAnalysis.crowdEdge)}</small>
+            </div>
+            <div>
+              <span>Score exact</span>
+              <strong>{rec.score.home}-{rec.score.away}</strong>
+              <small>{pct(rec.score.probability)} x bonus +{rec.score.estimatedBonus} = {rec.score.expectedBonusPoints.toFixed(1)} pts EV</small>
+            </div>
+          </div>
+        </section>
+      )}
     </aside>
   );
 }
@@ -456,6 +509,29 @@ function labelOutcome(rec: Recommendation): string {
 function issueSummary(rec: Recommendation, outcome: "home" | "draw" | "away"): string {
   const item = rec.outcomeAnalysis[outcome];
   return `EV ${item.expectedPoints.toFixed(1)} | atk ${item.attackScore.toFixed(1)} | foule ${item.crowdPct.toFixed(0)}% | edge ${signedPctPoints(item.crowdEdge)}`;
+}
+
+function marketTableSummary(market: MarketSnapshot): string {
+  const total = closestTotal(market, 2.5) ?? market.totals[0];
+  const totalText = total ? `O${total.threshold} ${pct(total.pOver)}` : "totals -";
+  return `Vol ${compactNumber(market.volume)} | Liq ${compactNumber(market.liquidity)} | ${totalText}`;
+}
+
+function closestTotal(market: MarketSnapshot, threshold: number) {
+  return market.totals
+    .slice()
+    .sort((a, b) => Math.abs(a.threshold - threshold) - Math.abs(b.threshold - threshold))[0];
+}
+
+function odds(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "-";
+  return `@${(1 / value).toFixed(2)}`;
+}
+
+function spreadLabel(rec: Recommendation, team: "home" | "away" | "unknown"): string {
+  if (team === "home") return rec.match.homeTeam;
+  if (team === "away") return rec.match.awayTeam;
+  return "Équipe";
 }
 
 function scoreText(home?: number | null, away?: number | null): string {

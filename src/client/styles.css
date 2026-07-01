@@ -303,6 +303,62 @@ tbody tr.selected {
   grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr);
 }
 
+.marketBands,
+.calcPanel {
+  margin-top: 12px;
+}
+
+.marketBands {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.dataChip {
+  border: 1px solid #334038;
+  background: #17201b;
+  color: #eaf5eb;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mutedChip {
+  color: #aab5ad;
+  font-weight: 600;
+}
+
+.calcPanel {
+  border-top: 1px solid #3b463f;
+  padding-top: 12px;
+}
+
+.calcGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.calcGrid div {
+  border: 1px solid #29302b;
+  border-radius: 6px;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.calcGrid strong {
+  color: #f7fff7;
+  font-size: 16px;
+}
+
 h3 {
   margin: 0 0 8px;
   font-size: 13px;
@@ -381,7 +437,9 @@ h3 {
   .detailHeader,
   .detailGrid,
   .detailColumns,
-  .detailColumns.two {
+  .detailColumns.two,
+  .marketBands,
+  .calcGrid {
     grid-template-columns: 1fr;
   }
 }
