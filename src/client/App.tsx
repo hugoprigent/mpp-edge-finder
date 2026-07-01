@@ -4,10 +4,11 @@ import type { AppStatus, BacktestReport, BacktestRow, MarketSnapshot, MppSnapsho
 type RecommendationsResponse = { recommendations: Recommendation[] };
 type MatchHistoryResponse = { mppHistory: MppSnapshot[]; marketHistory: MarketSnapshot[] };
 type BacktestResponse = { backtest: BacktestReport };
+type AppView = "live" | "backtest" | "algo";
 
 export function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
-  const [view, setView] = useState<"live" | "backtest">(() => (window.location.pathname === "/backtest" ? "backtest" : "live"));
+  const [view, setView] = useState<AppView>(() => viewFromPath(window.location.pathname));
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [message, setMessage] = useState("");
@@ -29,9 +30,9 @@ export function App() {
     }
   }
 
-  function switchView(nextView: "live" | "backtest") {
+  function switchView(nextView: AppView) {
     setView(nextView);
-    window.history.pushState(null, "", nextView === "backtest" ? "/backtest" : "/");
+    window.history.pushState(null, "", pathForView(nextView));
   }
 
   async function runAction(name: string, action: () => Promise<SyncResult | unknown>) {
@@ -55,7 +56,7 @@ export function App() {
   }, [view]);
 
   useEffect(() => {
-    const onPopState = () => setView(window.location.pathname === "/backtest" ? "backtest" : "live");
+    const onPopState = () => setView(viewFromPath(window.location.pathname));
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
@@ -109,6 +110,7 @@ export function App() {
         <div className="topActions">
           <button className={view === "live" ? "activeButton" : ""} onClick={() => switchView("live")}>Live</button>
           <button className={view === "backtest" ? "activeButton" : ""} onClick={() => switchView("backtest")}>Backtest</button>
+          <button className={view === "algo" ? "activeButton" : ""} onClick={() => switchView("algo")}>Algo</button>
           <a className="mppLink" href="https://mpp.football/" target="_blank" rel="noreferrer">Ouvrir MPP</a>
           <button onClick={() => void logout(setAuthenticated)}>Verrouiller</button>
         </div>
@@ -118,7 +120,7 @@ export function App() {
         <StatusCard label="Matchs suivis" value={status?.matches ?? 0} />
         <StatusCard label="MPP" value={formatDate(status?.lastMppSync)} sub={status?.lastMppScrapeError ? "à vérifier" : "scrape auto"} />
         <StatusCard label="Polymarket" value={formatDate(status?.lastPolymarketSync)} sub={status?.polymarketLeagueSlug ?? "fwc"} />
-        <StatusCard label="Résultats" value={status?.mppResults ?? 0} sub={view === "backtest" && backtest ? `${backtest.playable} simulables` : "page backtest"} />
+        <StatusCard label="Résultats" value={status?.mppResults ?? 0} sub={view === "backtest" && backtest ? `${backtest.playable} simulables` : "backtest dispo"} />
         <StatusCard
           label="Saisie auto"
           value={autoPlayLabel(status)}
@@ -151,7 +153,9 @@ export function App() {
 
       {message && <div className="message">{message}</div>}
 
-      {view === "backtest" ? (
+      {view === "algo" ? (
+        <AlgorithmPage status={status} />
+      ) : view === "backtest" ? (
         backtest ? <BacktestPanel backtest={backtest} /> : <section className="x2Panel"><h2>Backtest</h2><p>Chargement...</p></section>
       ) : (
         <LiveView
@@ -167,6 +171,18 @@ export function App() {
       )}
     </main>
   );
+}
+
+function viewFromPath(pathname: string): AppView {
+  if (pathname === "/backtest") return "backtest";
+  if (pathname === "/algo") return "algo";
+  return "live";
+}
+
+function pathForView(view: AppView): string {
+  if (view === "backtest") return "/backtest";
+  if (view === "algo") return "/algo";
+  return "/";
 }
 
 function LiveView({
@@ -412,6 +428,149 @@ function BacktestTableRow({ row }: { row: BacktestRow }) {
         <small>{row.marketSnapshotMode === "mpp-crowd-fallback" ? "Fallback MPP" : `Poly ${formatDate(row.marketSnapshotAt)}`}</small>
       </td>
     </tr>
+  );
+}
+
+function AlgorithmPage({ status }: { status: AppStatus | null }) {
+  const strategy = status?.mppStrategyMode ?? "chase";
+  const leadTime = status?.mppAutoPlayLeadSeconds ? leadTimeLabel(status.mppAutoPlayLeadSeconds) : "T-10 min";
+  const hourly = status?.mppHourlyAutoPlay ? `toutes les ${status.mppHourlyAutoPlayIntervalMinutes} min` : "manuel";
+  const modeLabel = strategy === "ev" ? "EV pure" : "Chase";
+
+  return (
+    <section className="algoPage">
+      <div className="sectionTitle">
+        <div>
+          <h2>Fonctionnement de l'algorithme</h2>
+          <span>Lecture MPP, probabilités Polymarket, choix du score et contrôle par backtest.</span>
+        </div>
+        <span>{modeLabel} · {leadTime}</span>
+      </div>
+
+      <div className="backtestGrid">
+        <Metric label="Mode actif" value={modeLabel} sub={strategy === "ev" ? "maximise l'espérance brute" : "remontée classement avec levier"} />
+        <Metric label="Décision auto" value={leadTime} sub={autoPlaySub(status)} />
+        <Metric label="Mise à jour" value={hourly} sub="scrape MPP + sync marchés" />
+        <Metric label="Historique MPP" value={`${status?.mppResults ?? 0} matchs`} sub="utilisé pour le backtest" />
+      </div>
+
+      <div className="algoLayout">
+        <section className="algoBlock">
+          <h3>Données utilisées</h3>
+          <div className="algoFlow">
+            <div>
+              <strong>MPP</strong>
+              <span>points 1/N/2, foule, score déjà saisi, résultats passés et matchs disponibles.</span>
+            </div>
+            <div>
+              <strong>Polymarket</strong>
+              <span>probabilités 1/N/2, volume, liquidité, totals et spreads quand le marché les expose.</span>
+            </div>
+            <div>
+              <strong>Matching</strong>
+              <span>rapprochement des équipes par noms et alias, puis stockage d'un snapshot horodaté.</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="algoBlock">
+          <h3>Calcul de l'issue</h3>
+          <ol className="stepList">
+            <li>Chaque issue reçoit une probabilité marché: domicile, nul, extérieur.</li>
+            <li>Le rendement de base est l'espérance MPP: <code>EV = proba_poly x points_MPP</code>.</li>
+            <li>En mode chase, l'algo ajoute du levier si l'issue paie beaucoup et reste assez probable.</li>
+            <li>Il récompense les issues sous-jouées par la foule MPP et pénalise les issues surjouées.</li>
+            <li>Il retire une pénalité si la probabilité devient trop faible, pour éviter les purs tickets loterie.</li>
+          </ol>
+        </section>
+
+        <section className="algoBlock">
+          <h3>Formule principale</h3>
+          <div className="formulaStack">
+            <div>
+              <span>EV pure</span>
+              <code>proba x points</code>
+            </div>
+            <div>
+              <span>Levier</span>
+              <code>points x sqrt(proba) x (1 - part_foule)</code>
+            </div>
+            <div>
+              <span>Score chase</span>
+              <code>EV + 0.35 x levier + edge_foule - penalites</code>
+            </div>
+          </div>
+          <p>Le score final choisit l'issue avec le meilleur objectif stratégique. Le X2 est ensuite mis sur le match qui a le meilleur score stratégique global.</p>
+        </section>
+
+        <section className="algoBlock">
+          <h3>Score exact</h3>
+          <ol className="stepList">
+            <li>L'algo ajuste deux lambdas Poisson pour reproduire les probabilités 1/N/2 Polymarket.</li>
+            <li>Si les marchés de totals sont disponibles, ils corrigent le nombre de buts attendu.</li>
+            <li>Les scores de 0-0 à 5-5 sont testés, en gardant seulement ceux qui correspondent à l'issue choisie.</li>
+            <li>Le bonus rareté estimé vaut +20, +30, +50, +70 ou +100 selon la popularité probable du score.</li>
+            <li>Le 0-0 a une petite pénalité, car il ressortait trop souvent dans les tests.</li>
+          </ol>
+        </section>
+
+        <section className="algoBlock">
+          <h3>Automatisation</h3>
+          <div className="algoFlow compact">
+            <div>
+              <strong>Dès disponibilité</strong>
+              <span>si un match MPP apparaît sans score, le système peut remplir une recommandation.</span>
+            </div>
+            <div>
+              <strong>Horaire</strong>
+              <span>un passage régulier remet à jour MPP et Polymarket pour éviter les matchs oubliés.</span>
+            </div>
+            <div>
+              <strong>{leadTime}</strong>
+              <span>la décision proche du match utilise les derniers snapshots disponibles.</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="algoBlock">
+          <h3>Backtest</h3>
+          <p>La page Backtest rejoue les résultats MPP passés avec les cotes Polymarket historiques avant match quand elles existent.</p>
+          <p>Quand Polymarket manque pour un vieux match, le test utilise un fallback basé sur la foule MPP. Ces lignes sont marquées fallback et sont moins fiables que les snapshots Polymarket réels.</p>
+        </section>
+
+        <section className="algoBlock wide">
+          <h3>Exemple rapide</h3>
+          <div className="exampleGrid">
+            <div>
+              <span>Polymarket</span>
+              <strong>Belgique 58% · nul 24% · adversaire 18%</strong>
+            </div>
+            <div>
+              <span>Points MPP</span>
+              <strong>Belgique 44 · nul 80 · adversaire 120</strong>
+            </div>
+            <div>
+              <span>EV brute</span>
+              <strong>25.5 · 19.2 · 21.6</strong>
+            </div>
+            <div>
+              <span>Décision</span>
+              <strong>Belgique si son score chase reste devant</strong>
+            </div>
+          </div>
+          <p>Si la Belgique est peu jouée par la foule MPP, son score chase monte encore. Si au contraire tout le monde joue Belgique, l'algo peut préférer une issue un peu moins probable mais beaucoup plus rentable.</p>
+        </section>
+
+        <section className="algoBlock wide">
+          <h3>Limites à garder en tête</h3>
+          <ul className="reasonList">
+            <li>En phase à élimination directe, MPP peut compter 120 minutes alors que certains marchés externes sont en 90 minutes; la confiance est donc réduite.</li>
+            <li>Les cotes bougent: une recommandation ancienne doit être relue avant saisie.</li>
+            <li>Le bonus de score exact est estimé, pas directement donné par MPP.</li>
+          </ul>
+        </section>
+      </div>
+    </section>
   );
 }
 
