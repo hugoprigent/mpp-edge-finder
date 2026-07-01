@@ -134,6 +134,9 @@ export type AppStatus = {
   mppAutoPlay: boolean;
   mppAutoPlayDryRun: boolean;
   mppAutoPlayLeadSeconds: number;
+  mppHourlyAutoPlay: boolean;
+  mppHourlyAutoPlayDryRun: boolean;
+  mppHourlyAutoPlayIntervalMinutes: number;
   polymarketLeagueSlug: string;
 };
 

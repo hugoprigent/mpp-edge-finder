@@ -100,8 +100,8 @@ export function App() {
         <StatusCard label="Polymarket" value={formatDate(status?.lastPolymarketSync)} sub={status?.polymarketLeagueSlug ?? "fwc"} />
         <StatusCard
           label="Saisie auto"
-          value={status?.mppAutoPlay ? "on" : "off"}
-          sub={status?.mppAutoPlay ? `${status.mppAutoPlayDryRun ? "dry-run" : "réel"} T-${status.mppAutoPlayLeadSeconds}s` : "manuel"}
+          value={autoPlayLabel(status)}
+          sub={autoPlaySub(status)}
         />
         <StatusCard label="Stratégie" value={status?.mppStrategyMode ?? "chase"} sub={status?.mppStrategyMode === "ev" ? "EV pure" : "remontée"} />
       </section>
@@ -381,6 +381,23 @@ function StatusCard({ label, value, sub }: { label: string; value: string | numb
       {sub && <small>{sub}</small>}
     </div>
   );
+}
+
+function autoPlayLabel(status?: AppStatus | null): string {
+  if (!status) return "off";
+  if (status.mppHourlyAutoPlay && status.mppAutoPlay) return "horaire + T-60";
+  if (status.mppHourlyAutoPlay) return "horaire";
+  if (status.mppAutoPlay) return "T-60";
+  return "off";
+}
+
+function autoPlaySub(status?: AppStatus | null): string {
+  if (!status) return "manuel";
+  if (status.mppHourlyAutoPlay) {
+    return `${status.mppHourlyAutoPlayDryRun ? "dry-run" : "réel"} toutes les ${status.mppHourlyAutoPlayIntervalMinutes} min`;
+  }
+  if (status.mppAutoPlay) return `${status.mppAutoPlayDryRun ? "dry-run" : "réel"} T-${status.mppAutoPlayLeadSeconds}s`;
+  return "manuel";
 }
 
 function Badge({ value }: { value: string }) {

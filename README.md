@@ -2,7 +2,7 @@
 
 Assistant de décision pour Mon Petit Prono: il combine les points MPP, la foule MPP et les probabilités publiques Polymarket pour proposer l'issue et le score exact avec le meilleur objectif selon la stratégie active.
 
-Le projet ne place aucun prono automatiquement. Il affiche et notifie les recommandations pour validation manuelle dans MPP.
+Le projet peut rester en lecture seule, ou saisir automatiquement les pronos MPP recommandés via le profil Chromium persistant du VPS.
 
 ## Démarrage local
 
@@ -58,8 +58,8 @@ Les poids du mode chase sont réglables dans `.env`: `MPP_CHASE_LEVERAGE_WEIGHT`
 ## Données gratuites
 
 - Polymarket public: aucun compte, aucune clé. Poll toutes les 5 min par défaut, puis 60 s quand un match est à moins de 2 h.
-- MPP: soit import manuel via le bookmarklet, soit Playwright avec profil Chromium persistant.
-- Telegram: optionnel et gratuit via BotFather. Sans Telegram, le dashboard peut afficher une alerte navigateur si l'onglet reste ouvert.
+- MPP: Playwright avec profil Chromium persistant, plus un import manuel legacy gardé pour dépannage.
+- Telegram/ntfy: optionnels pour les alertes hors navigateur.
 
 ## MPP automatisé sur VPS
 
@@ -95,15 +95,27 @@ MPP_AUTO_PLAY_LEAD_SECONDS=60
 MPP_AUTO_PLAY_WINDOW_SECONDS=45
 ```
 
+Elle peut aussi faire une passe de mise à jour toutes les heures pour que MPP reste déjà aligné sur les dernières cotes Polymarket:
+
+```bash
+MPP_HOURLY_AUTO_PLAY=true
+MPP_HOURLY_AUTO_PLAY_DRY_RUN=false
+MPP_HOURLY_AUTO_PLAY_INTERVAL_MINUTES=60
+MPP_HOURLY_AUTO_PLAY_HORIZON_HOURS=168
+MPP_HOURLY_AUTO_PLAY_WRITE_DELAY_MS=2500
+```
+
+La passe horaire synchronise Polymarket, relit MPP, puis n'écrit que les matchs futurs dont le score conseillé diffère du score déjà saisi. Elle utilise la même session Chromium persistante et le même verrou navigateur que le T-60 pour éviter les ouvertures concurrentes.
+
 Fonctionnement:
 
 1. Le scheduler surveille les matchs proches du coup d'envoi.
 2. Dans la fenêtre T-60s, il rafraîchit Polymarket et MPP.
 3. Il recalcule la meilleure recommandation selon la stratégie active.
 4. Il ouvre la session Chromium persistante MPP et remplit les deux champs du score exact.
-5. Il marque le match comme traité pour éviter une double saisie.
+5. Il marque le match comme traité pour éviter une double saisie T-60.
 
-Le bouton `Dry-run MPP` vérifie la correspondance match/inputs sans écrire. Le bouton `Jouer MPP maintenant` applique manuellement la meilleure recommandation exploitable, sans attendre T-60s.
+Le bouton `Tester contrôle MPP` vérifie la correspondance match/inputs sans écrire.
 
 Login initial MPP sur VPS, sans service payant:
 
@@ -119,13 +131,9 @@ La méthode DOM validée est:
 2. Elle envoie le snapshot localement à `POST /api/import/mpp-text`.
 3. Le parser reconstitue les matchs, puis le moteur recalcule les recommandations.
 
-Fallbacks si le VPS perd sa session MPP:
+Fallback si le VPS perd sa session MPP: lance le service `mpp-login`, reconnecte MPP dans noVNC, attends que les matchs soient visibles, puis coupe `mpp-login`. Le scraper Playwright principal reprend ensuite avec le profil conservé dans `MPP_PROFILE_DIR`.
 
-1. Import direct Chrome: dans l'interface, copie `Copier import direct`, ajoute-le en favori, ouvre MPP connecté, clique le favori. Le snapshot arrive directement dans l'app.
-2. Import manuel robuste: utilise `Copier JSON`, clique-le sur MPP connecté, colle le JSON dans l'interface.
-3. Scraper Playwright: `POST /api/scrape/mpp/run` ouvre `mpp.football` avec le profil `MPP_PROFILE_DIR`. Lance en `MPP_HEADLESS=false`, connecte-toi une fois, puis relance le scrape.
-
-Le bookmarklet exact est généré par `GET /api/bookmarklet`, car l'URL d'import dépend de l'adresse locale ou VPS de l'app.
+Les endpoints d'import DOM/bookmarklet existent encore pour dépannage technique, mais ils ne sont plus exposés dans l'interface principale.
 
 ## Notifications gratuites
 
@@ -149,9 +157,7 @@ Pour générer un topic ntfy difficile à deviner:
 
 Installe l'app ntfy sur ton téléphone ou ouvre `https://ntfy.sh/app`, abonne-toi à ce topic, puis le VPS pourra envoyer les alertes T-10 par HTTP POST sans compte. Le topic fonctionne comme un mot de passe léger: garde-le privé.
 
-Le worker envoie une alerte une seule fois par match autour de `T-10 min`.
-
-Dans l'interface, le bouton `Activer alertes navigateur` permet d'avoir une notification gratuite locale à `T-10` tant que le dashboard est ouvert. Sur VPS, ntfy ou Telegram restent préférables car ils n'ont pas besoin que ton navigateur reste ouvert.
+Le worker envoie une alerte une seule fois par match autour de `T-10 min`. Sur VPS, ntfy ou Telegram restent préférables car ils n'ont pas besoin que ton navigateur reste ouvert.
 
 ## VPS
 

@@ -309,6 +309,9 @@ export class Store {
       mppAutoPlay: config.mppAutoPlay,
       mppAutoPlayDryRun: config.mppAutoPlayDryRun,
       mppAutoPlayLeadSeconds: config.mppAutoPlayLeadSeconds,
+      mppHourlyAutoPlay: config.mppHourlyAutoPlay,
+      mppHourlyAutoPlayDryRun: config.mppHourlyAutoPlayDryRun,
+      mppHourlyAutoPlayIntervalMinutes: config.mppHourlyAutoPlayIntervalMinutes,
       polymarketLeagueSlug: config.polymarketLeagueSlug
     };
   }

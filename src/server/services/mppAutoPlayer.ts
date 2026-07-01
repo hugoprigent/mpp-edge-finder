@@ -18,43 +18,74 @@ export type MppAutoPlayResult = {
   currentAwayScore?: string;
 };
 
+type MppScoreInput = {
+  match: Match;
+  homeScore: number;
+  awayScore: number;
+  dryRun: boolean;
+  source: "recommendation" | "manual";
+};
+
 export async function applyMppRecommendation(rec: Recommendation, dryRun = config.mppAutoPlayDryRun): Promise<MppAutoPlayResult> {
-  return withMppBrowserLock(() => applyMppRecommendationUnlocked(rec, dryRun));
+  const results = await applyMppRecommendations([rec], dryRun);
+  return results[0] ?? {
+    ok: false,
+    dryRun,
+    matchId: rec.match.id,
+    matchTitle: `${rec.match.homeTeam} - ${rec.match.awayTeam}`,
+    message: "Recommandation incomplète: score absent."
+  };
 }
 
-async function applyMppRecommendationUnlocked(rec: Recommendation, dryRun: boolean): Promise<MppAutoPlayResult> {
-  if (!rec.score || rec.outcome === "needs-data") {
-    return {
-      ok: false,
+export async function applyMppRecommendations(recs: Recommendation[], dryRun = config.mppAutoPlayDryRun, writeDelayMs = 0): Promise<MppAutoPlayResult[]> {
+  const results: MppAutoPlayResult[] = [];
+  const inputs: MppScoreInput[] = [];
+  for (const rec of recs) {
+    if (!rec.score || rec.outcome === "needs-data") {
+      results.push({
+        ok: false,
+        dryRun,
+        matchId: rec.match.id,
+        matchTitle: `${rec.match.homeTeam} - ${rec.match.awayTeam}`,
+        message: "Recommandation incomplète: score absent."
+      });
+      continue;
+    }
+    inputs.push({
+      match: rec.match,
+      homeScore: rec.score.home,
+      awayScore: rec.score.away,
       dryRun,
-      matchId: rec.match.id,
-      matchTitle: `${rec.match.homeTeam} - ${rec.match.awayTeam}`,
-      message: "Recommandation incomplète: score absent."
-    };
+      source: "recommendation"
+    });
   }
-
-  return fillMppScore({
-    match: rec.match,
-    homeScore: rec.score.home,
-    awayScore: rec.score.away,
-    dryRun,
-    source: "recommendation"
-  });
+  if (inputs.length === 0) return results;
+  const applied = await withMppBrowserLock(() => fillMppScores(inputs, writeDelayMs));
+  return results.concat(applied);
 }
 
 export async function applyManualMppScore(match: Match, homeScore: number, awayScore: number, dryRun = false): Promise<MppAutoPlayResult> {
-  return withMppBrowserLock(() =>
-    fillMppScore({
-      match,
-      homeScore,
-      awayScore,
-      dryRun,
-      source: "manual"
-    })
+  const results = await withMppBrowserLock(() =>
+    fillMppScores([
+      {
+        match,
+        homeScore,
+        awayScore,
+        dryRun,
+        source: "manual"
+      }
+    ])
   );
+  return results[0] ?? {
+    ok: false,
+    dryRun,
+    matchId: match.id,
+    matchTitle: `${match.homeTeam} - ${match.awayTeam}`,
+    message: "Saisie MPP non exécutée."
+  };
 }
 
-async function fillMppScore(input: { match: Match; homeScore: number; awayScore: number; dryRun: boolean; source: "recommendation" | "manual" }): Promise<MppAutoPlayResult> {
+async function fillMppScores(inputs: MppScoreInput[], writeDelayMs = 0): Promise<MppAutoPlayResult[]> {
   const { chromium } = await import("playwright");
   const context = await chromium.launchPersistentContext(config.mppProfileDir, {
     headless: config.mppHeadless,
@@ -68,40 +99,50 @@ async function fillMppScore(input: { match: Match; homeScore: number; awayScore:
 
     const tokens = await extractVisibleTokens(page);
     const mppMatches = parseMppTokens(tokens);
-    const target = findMppMatch(mppMatches, input.match);
-    if (!target) {
-      return {
-        ok: false,
-        dryRun: input.dryRun,
-        matchId: input.match.id,
-        matchTitle: `${input.match.homeTeam} - ${input.match.awayTeam}`,
-        message: "Match introuvable dans la page MPP connectée."
-      };
+    const scoreInputs = page.locator("input,textarea");
+    const results: MppAutoPlayResult[] = [];
+
+    for (let index = 0; index < inputs.length; index += 1) {
+      const result = await fillMppScoreOnPage(scoreInputs, mppMatches, inputs[index]);
+      results.push(result);
+      const shouldPause = !inputs[index].dryRun && writeDelayMs > 0 && index < inputs.length - 1;
+      if (shouldPause) await page.waitForTimeout(writeDelayMs);
     }
 
-    const inputs = page.locator("input,textarea");
-    const homeInput = inputs.nth(target.index * 2);
-    const awayInput = inputs.nth(target.index * 2 + 1);
-    const currentHomeScore = await homeInput.inputValue();
-    const currentAwayScore = await awayInput.inputValue();
-    const homeScore = target.reversed ? input.awayScore : input.homeScore;
-    const awayScore = target.reversed ? input.homeScore : input.awayScore;
+    return results;
+  } finally {
+    await context.close();
+  }
+}
 
-    if (!input.dryRun) {
-      await homeInput.fill(String(homeScore));
-      await awayInput.fill(String(awayScore));
-      await awayInput.blur();
-      await page.waitForTimeout(1_500);
-    }
-
-    const afterHome = input.dryRun ? currentHomeScore : await homeInput.inputValue();
-    const afterAway = input.dryRun ? currentAwayScore : await awayInput.inputValue();
-    const changed = afterHome === String(homeScore) && afterAway === String(awayScore);
-    const title = `${input.match.homeTeam} - ${input.match.awayTeam}`;
-    const action = input.source === "manual" ? "Score manuel MPP" : "MPP rempli";
-
+async function fillMppScoreOnPage(
+  inputs: import("playwright").Locator,
+  mppMatches: Array<{ kickoffUtc: string; homeTeam: string; awayTeam: string }>,
+  input: MppScoreInput
+): Promise<MppAutoPlayResult> {
+  const target = findMppMatch(mppMatches, input.match);
+  if (!target) {
     return {
-      ok: input.dryRun || changed,
+      ok: false,
+      dryRun: input.dryRun,
+      matchId: input.match.id,
+      matchTitle: `${input.match.homeTeam} - ${input.match.awayTeam}`,
+      message: "Match introuvable dans la page MPP connectée."
+    };
+  }
+
+  const homeInput = inputs.nth(target.index * 2);
+  const awayInput = inputs.nth(target.index * 2 + 1);
+  const currentHomeScore = await homeInput.inputValue();
+  const currentAwayScore = await awayInput.inputValue();
+  const homeScore = target.reversed ? input.awayScore : input.homeScore;
+  const awayScore = target.reversed ? input.homeScore : input.awayScore;
+  const title = `${input.match.homeTeam} - ${input.match.awayTeam}`;
+  const action = input.source === "manual" ? "Score manuel MPP" : "MPP rempli";
+
+  if (currentHomeScore === String(homeScore) && currentAwayScore === String(awayScore)) {
+    return {
+      ok: true,
       dryRun: input.dryRun,
       matchId: input.match.id,
       matchTitle: title,
@@ -110,14 +151,41 @@ async function fillMppScore(input: { match: Match; homeScore: number; awayScore:
       currentHomeScore,
       currentAwayScore,
       message: input.dryRun
-        ? `Dry-run MPP: ${title} serait joué ${homeScore}-${awayScore}.`
-        : changed
-          ? `${action}: ${title} ${homeScore}-${awayScore}.`
-          : `MPP rempli mais relecture inattendue: attendu ${homeScore}-${awayScore}, lu ${afterHome}-${afterAway}.`
+        ? `Dry-run MPP: ${title} est déjà à ${homeScore}-${awayScore}.`
+        : `MPP déjà à jour: ${title} ${homeScore}-${awayScore}.`
     };
-  } finally {
-    await context.close();
   }
+
+  if (!input.dryRun) {
+    await homeInput.fill(String(homeScore));
+    await awayInput.fill(String(awayScore));
+    await awayInput.blur();
+    await pagePauseAfterWrite(1_500);
+  }
+
+  const afterHome = input.dryRun ? currentHomeScore : await homeInput.inputValue();
+  const afterAway = input.dryRun ? currentAwayScore : await awayInput.inputValue();
+  const changed = afterHome === String(homeScore) && afterAway === String(awayScore);
+
+  return {
+    ok: input.dryRun || changed,
+    dryRun: input.dryRun,
+    matchId: input.match.id,
+    matchTitle: title,
+    homeScore,
+    awayScore,
+    currentHomeScore,
+    currentAwayScore,
+    message: input.dryRun
+      ? `Dry-run MPP: ${title} serait joué ${homeScore}-${awayScore}.`
+      : changed
+        ? `${action}: ${title} ${homeScore}-${awayScore}.`
+        : `MPP rempli mais relecture inattendue: attendu ${homeScore}-${awayScore}, lu ${afterHome}-${afterAway}.`
+  };
+}
+
+async function pagePauseAfterWrite(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function findMppMatch(matches: Array<{ kickoffUtc: string; homeTeam: string; awayTeam: string }>, match: Match): { index: number; reversed: boolean } | null {
