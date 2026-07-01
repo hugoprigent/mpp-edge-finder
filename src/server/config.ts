@@ -61,6 +61,7 @@ export const config = {
   mppChaseLotteryPenaltyWeight: numberEnv("MPP_CHASE_LOTTERY_PENALTY_WEIGHT", 0.8),
   mppChaseMinUsefulProbability: numberEnv("MPP_CHASE_MIN_USEFUL_PROBABILITY", 0.08),
   mppChaseScoreBonusWeight: numberEnv("MPP_CHASE_SCORE_BONUS_WEIGHT", 0.25),
+  mppScoreZeroZeroPenalty: numberEnv("MPP_SCORE_ZERO_ZERO_PENALTY", 0.8),
   polymarketLeagueSlug: process.env.POLYMARKET_LEAGUE_SLUG || "fwc",
   polymarketPollMinutes: numberEnv("POLYMARKET_POLL_MINUTES", 5),
   notificationLeadMinutes: numberEnv("NOTIFICATION_LEAD_MINUTES", 10),

@@ -51,6 +51,17 @@ describe("recommendMatch", () => {
     expect(rec.play.instruction).toMatch(/^Mets \d-\d \(nul\)$/);
   });
 
+  it("does not over-pick 0-0 when 1-1 has better exact-score bonus value", () => {
+    const rec = recommendMatch(
+      match,
+      { ...baseMpp, pointsHome: 20, pointsDraw: 220, pointsAway: 20, crowdHomePct: 40, crowdDrawPct: 15, crowdAwayPct: 45 },
+      { ...baseMarket, pHome: 0.53, pDraw: 0.27, pAway: 0.2, totals: [] }
+    );
+
+    expect(rec.outcome).toBe("draw");
+    expect(rec.score).toMatchObject({ home: 1, away: 1 });
+  });
+
   it("returns a missing-data recommendation when MPP is absent", () => {
     const rec = recommendMatch(match, undefined, baseMarket);
     expect(rec.outcome).toBe("needs-data");

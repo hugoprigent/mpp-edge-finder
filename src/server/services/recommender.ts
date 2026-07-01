@@ -321,7 +321,7 @@ function pickScore(outcome: Outcome, market: MarketSnapshot, strategy: StrategyM
       const popularityProxy = outcomeProb > 0 ? probability / outcomeProb : probability;
       const estimatedBonus = rarityBonus(popularityProxy);
       const expectedBonusPoints = probability * estimatedBonus;
-      const objective = scoreObjective(strategy, probability, estimatedBonus, popularityProxy, expectedBonusPoints);
+      const objective = scoreObjective(strategy, probability, estimatedBonus, popularityProxy, expectedBonusPoints, home, away, outcome);
       const score: ScorePick = {
         home,
         away,
@@ -346,10 +346,20 @@ function pickScore(outcome: Outcome, market: MarketSnapshot, strategy: StrategyM
   };
 }
 
-function scoreObjective(strategy: StrategyMode, probability: number, estimatedBonus: number, popularityProxy: number, expectedBonusPoints: number): number {
-  if (strategy === "ev") return expectedBonusPoints;
+function scoreObjective(
+  strategy: StrategyMode,
+  probability: number,
+  estimatedBonus: number,
+  popularityProxy: number,
+  expectedBonusPoints: number,
+  home: number,
+  away: number,
+  outcome: Outcome
+): number {
+  const zeroZeroPenalty = outcome === "draw" && home === 0 && away === 0 ? config.mppScoreZeroZeroPenalty : 0;
+  if (strategy === "ev") return expectedBonusPoints - zeroZeroPenalty;
   const rarityLeverage = Math.sqrt(probability) * estimatedBonus * (1 - clamp(popularityProxy, 0, 1));
-  return expectedBonusPoints + config.mppChaseScoreBonusWeight * rarityLeverage;
+  return expectedBonusPoints + config.mppChaseScoreBonusWeight * 0.05 * rarityLeverage - zeroZeroPenalty;
 }
 
 function fitLambdas(market: MarketSnapshot): { home: number; away: number } {
