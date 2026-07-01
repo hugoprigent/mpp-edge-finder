@@ -141,6 +141,7 @@ export type BacktestRow = {
   mppSnapshotAt?: string | null;
   mppSnapshotMode?: "pre-decision" | "historical-result" | null;
   marketSnapshotAt?: string | null;
+  marketSnapshotMode?: "polymarket" | "mpp-crowd-fallback" | null;
   variants: BacktestVariantSummary[];
 };
 
@@ -150,6 +151,7 @@ export type BacktestReport = {
   totalResults: number;
   playable: number;
   skipped: number;
+  fallbackMarkets: number;
   botPoints: number;
   userPoints: number;
   deltaPoints: number;

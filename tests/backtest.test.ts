@@ -53,7 +53,7 @@ describe("buildMppBacktest", () => {
       scrapedAt: "2026-07-01T12:00:00.000Z"
     });
 
-    const skipped = store.upsertMatch({
+    const fallback = store.upsertMatch({
       kickoffUtc: "2026-07-01T12:00:00.000Z",
       homeTeam: "Argentine",
       awayTeam: "Cap-Vert",
@@ -62,7 +62,7 @@ describe("buildMppBacktest", () => {
       source: "merged"
     });
     store.addMppSnapshot({
-      matchId: skipped.id,
+      matchId: fallback.id,
       pointsHome: 25,
       pointsDraw: 165,
       pointsAway: 213,
@@ -75,7 +75,7 @@ describe("buildMppBacktest", () => {
       scrapedAt: "2026-07-01T11:55:01.000Z"
     });
     store.upsertMppResult({
-      matchId: skipped.id,
+      matchId: fallback.id,
       actualHomeScore: 3,
       actualAwayScore: 0,
       totalPoints: 25,
@@ -85,9 +85,11 @@ describe("buildMppBacktest", () => {
     const backtest = buildMppBacktest(store, 600);
 
     expect(backtest.totalResults).toBe(2);
-    expect(backtest.playable).toBe(1);
-    expect(backtest.skipped).toBe(1);
+    expect(backtest.playable).toBe(2);
+    expect(backtest.skipped).toBe(0);
+    expect(backtest.fallbackMarkets).toBe(1);
+    expect(backtest.userPoints).toBe(25);
     expect(backtest.rows.find((row) => row.match.id === playable.id)?.botPoints).toBeGreaterThan(0);
-    expect(backtest.rows.find((row) => row.match.id === skipped.id)?.skippedReason).toContain("avant décision");
+    expect(backtest.rows.find((row) => row.match.id === fallback.id)?.marketSnapshotMode).toBe("mpp-crowd-fallback");
   });
 });

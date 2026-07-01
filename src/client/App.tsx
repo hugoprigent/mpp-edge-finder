@@ -344,15 +344,15 @@ function BacktestPanel({ backtest }: { backtest: BacktestReport }) {
       <div className="sectionTitle">
         <div>
           <h2>Simulation algo</h2>
-          <span>T-{Math.round(backtest.leadSeconds / 60)} min · {backtest.playable}/{backtest.totalResults} résultats simulables</span>
+          <span>T-{Math.round(backtest.leadSeconds / 60)} min · {backtest.playable}/{backtest.totalResults} matchs simulés</span>
         </div>
         <span>MAJ {formatDate(backtest.generatedAt)}</span>
       </div>
 
       <div className="backtestGrid">
         <Metric label="Algo actuel" value={`${backtest.botPoints} pts`} sub={`${backtest.correctOutcomes} issues justes · ${backtest.exactScores} exacts`} />
-        <Metric label="Compte MPP" value={`${backtest.userPoints} pts`} sub={`écart ${signedInteger(backtest.deltaPoints)} pts`} />
-        <Metric label="Données manquantes" value={`${backtest.skipped}`} sub="pas de snapshot avant décision" />
+        <Metric label="Compte MPP" value={`${backtest.userPoints} pts`} sub="tous résultats MPP pris en compte" />
+        <Metric label="Écart" value={`${signedInteger(backtest.deltaPoints)} pts`} sub={`${backtest.fallbackMarkets} fallback MPP`} />
         <Metric label="Meilleure variante" value={bestVariant ? bestVariant.strategy : "-"} sub={bestVariant ? `${bestVariant.points} pts sur ${bestVariant.playable} matchs` : "à venir"} />
       </div>
 
@@ -409,7 +409,7 @@ function BacktestTableRow({ row }: { row: BacktestRow }) {
       <td>
         <small>MPP {formatDate(row.mppSnapshotAt)}</small>
         {row.mppSnapshotMode && <small>{row.mppSnapshotMode === "pre-decision" ? "pré-match" : "historique MPP"}</small>}
-        <small>Poly {formatDate(row.marketSnapshotAt)}</small>
+        <small>{row.marketSnapshotMode === "mpp-crowd-fallback" ? "Fallback MPP" : `Poly ${formatDate(row.marketSnapshotAt)}`}</small>
       </td>
     </tr>
   );

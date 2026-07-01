@@ -6,6 +6,7 @@ import type {
   BacktestReport,
   BacktestRow,
   BacktestVariantSummary,
+  MarketSnapshot,
   MppResult,
   MppSnapshot,
   Outcome,
@@ -27,7 +28,8 @@ export function buildMppBacktest(store: Store, leadSeconds = config.mppAutoPlayL
     const preDecisionMpp = store.mppSnapshotBefore(match.id, decisionAt);
     const historicalMpp = preDecisionMpp ?? store.mppHistory(match.id, 1)[0];
     const mpp = historicalMpp;
-    const market = store.marketSnapshotBefore(match.id, decisionAt);
+    const preDecisionMarket = store.marketSnapshotBefore(match.id, decisionAt);
+    const market = preDecisionMarket ?? (mpp ? fallbackMarketFromMpp(match.id, mpp, decisionAt) : undefined);
 
     if (!mpp || !market) {
       rows.push({
@@ -43,6 +45,7 @@ export function buildMppBacktest(store: Store, leadSeconds = config.mppAutoPlayL
         mppSnapshotAt: mpp?.scrapedAt ?? null,
         mppSnapshotMode: mpp ? (preDecisionMpp ? "pre-decision" : "historical-result") : null,
         marketSnapshotAt: market?.fetchedAt ?? null,
+        marketSnapshotMode: market ? (preDecisionMarket ? "polymarket" : "mpp-crowd-fallback") : null,
         variants: []
       });
       continue;
@@ -74,14 +77,15 @@ export function buildMppBacktest(store: Store, leadSeconds = config.mppAutoPlayL
       mppSnapshotAt: mpp.scrapedAt,
       mppSnapshotMode: preDecisionMpp ? "pre-decision" : "historical-result",
       marketSnapshotAt: market.fetchedAt,
+      marketSnapshotMode: preDecisionMarket ? "polymarket" : "mpp-crowd-fallback",
       variants
     });
   }
 
   rows.sort((a, b) => new Date(b.match.kickoffUtc).getTime() - new Date(a.match.kickoffUtc).getTime());
   const playableRows = rows.filter((row) => !row.skippedReason);
-  const botPoints = sum(playableRows.map((row) => row.botPoints));
-  const userPoints = sum(playableRows.map((row) => row.userPoints ?? 0));
+  const botPoints = sum(rows.map((row) => row.botPoints));
+  const userPoints = sum(rows.map((row) => row.userPoints ?? 0));
 
   return {
     generatedAt: nowIso(),
@@ -89,14 +93,43 @@ export function buildMppBacktest(store: Store, leadSeconds = config.mppAutoPlayL
     totalResults: rows.length,
     playable: playableRows.length,
     skipped: rows.length - playableRows.length,
+    fallbackMarkets: rows.filter((row) => row.marketSnapshotMode === "mpp-crowd-fallback").length,
     botPoints,
     userPoints,
     deltaPoints: botPoints - userPoints,
-    correctOutcomes: playableRows.filter((row) => row.correctOutcome).length,
-    exactScores: playableRows.filter((row) => row.exactScore).length,
-    variants: aggregateVariants(playableRows),
+    correctOutcomes: rows.filter((row) => row.correctOutcome).length,
+    exactScores: rows.filter((row) => row.exactScore).length,
+    variants: aggregateVariants(rows),
     rows
   };
+}
+
+function fallbackMarketFromMpp(matchId: string, mpp: MppSnapshot, decisionAt: string): MarketSnapshot {
+  const shares = [mpp.crowdHomePct, mpp.crowdDrawPct, mpp.crowdAwayPct].map((value) => Math.max(0, value));
+  const sumShares = sum(shares);
+  const probabilities =
+    sumShares > 0
+      ? shares.map((value) => value / sumShares)
+      : inversePointProbabilities([mpp.pointsHome, mpp.pointsDraw, mpp.pointsAway]);
+  return {
+    id: `mpp-fallback-${matchId}`,
+    matchId,
+    pHome: probabilities[0],
+    pDraw: probabilities[1],
+    pAway: probabilities[2],
+    totals: [],
+    spreads: [],
+    volume: null,
+    liquidity: null,
+    source: "polymarket",
+    fetchedAt: decisionAt
+  };
+}
+
+function inversePointProbabilities(points: number[]): number[] {
+  const weights = points.map((point) => (point > 0 ? 1 / point : 0));
+  const total = sum(weights);
+  return total > 0 ? weights.map((weight) => weight / total) : [1 / 3, 1 / 3, 1 / 3];
 }
 
 function scoreRecommendation(
