@@ -125,14 +125,13 @@ export class Store {
     mppKey?: string | null;
   }): Match {
     const compatible = this.findCompatibleMatch(input.homeTeam, input.awayTeam, input.kickoffUtc);
-    const id =
-      compatible?.id ??
-      stableId(
-        "match",
-        input.kickoffUtc.slice(0, 10),
-        slugify(input.homeTeam),
-        slugify(input.awayTeam)
-      );
+    const incomingId = stableId(
+      "match",
+      input.kickoffUtc.slice(0, 10),
+      slugify(input.homeTeam),
+      slugify(input.awayTeam)
+    );
+    const id = compatible?.id ?? incomingId;
     const existing = this.getMatch(id);
     const now = nowIso();
     const source = mergeSource(existing?.source, input.source);
@@ -168,6 +167,9 @@ export class Store {
         existing?.createdAt ?? now,
         now
       );
+
+    if (compatible && incomingId !== id) this.mergeDuplicateMatch(incomingId, id);
+    this.mergeCompatibleDuplicates(this.getMatch(id)!);
 
     return this.getMatch(id)!;
   }
@@ -322,6 +324,30 @@ export class Store {
     const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
     if (rows.some((row) => row.name === column)) return;
     this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+
+  private mergeDuplicateMatch(duplicateId: string, targetId: string): void {
+    if (duplicateId === targetId || !this.getMatch(duplicateId) || !this.getMatch(targetId)) return;
+    this.db.prepare("UPDATE mpp_snapshots SET matchId = ? WHERE matchId = ?").run(targetId, duplicateId);
+    this.db.prepare("UPDATE market_snapshots SET matchId = ? WHERE matchId = ?").run(targetId, duplicateId);
+    this.db.prepare("DELETE FROM notifications WHERE matchId = ?").run(duplicateId);
+    this.db.prepare("DELETE FROM matches WHERE id = ?").run(duplicateId);
+  }
+
+  private mergeCompatibleDuplicates(target: Match): void {
+    const rows = this.db
+      .prepare("SELECT * FROM matches WHERE id != ? AND kickoffUtc BETWEEN ? AND ?")
+      .all(
+        target.id,
+        new Date(new Date(target.kickoffUtc).getTime() - 6 * 36e5).toISOString(),
+        new Date(new Date(target.kickoffUtc).getTime() + 6 * 36e5).toISOString()
+      ) as DbMatch[];
+    for (const row of rows) {
+      const duplicate = rowToMatch(row);
+      if (sameFixture(target, duplicate.homeTeam, duplicate.awayTeam, duplicate.kickoffUtc)) {
+        this.mergeDuplicateMatch(duplicate.id, target.id);
+      }
+    }
   }
 }
 
