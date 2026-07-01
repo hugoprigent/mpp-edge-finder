@@ -95,6 +95,15 @@ MPP_AUTO_PLAY_LEAD_SECONDS=600
 MPP_AUTO_PLAY_WINDOW_SECONDS=180
 ```
 
+Elle peut aussi remplir immédiatement les scores vides dès qu'un match devient exploitable, c'est-à-dire dès que MPP et Polymarket ont tous les deux les données du match:
+
+```bash
+MPP_AVAILABLE_AUTO_PLAY=true
+MPP_AVAILABLE_AUTO_PLAY_DRY_RUN=false
+MPP_AVAILABLE_AUTO_PLAY_HORIZON_HOURS=168
+MPP_AVAILABLE_AUTO_PLAY_WRITE_DELAY_MS=2500
+```
+
 Elle peut aussi faire une passe de mise à jour toutes les heures pour que MPP reste déjà aligné sur les dernières cotes Polymarket:
 
 ```bash
@@ -105,15 +114,16 @@ MPP_HOURLY_AUTO_PLAY_HORIZON_HOURS=168
 MPP_HOURLY_AUTO_PLAY_WRITE_DELAY_MS=2500
 ```
 
-La passe horaire synchronise Polymarket, relit MPP, puis n'écrit que les matchs futurs dont le score conseillé diffère du score déjà saisi. Elle utilise la même session Chromium persistante et le même verrou navigateur que le filet final pour éviter les ouvertures concurrentes.
+Le mode `dès dispo` ne touche que les matchs futurs dont le score MPP est encore vide. La passe horaire synchronise Polymarket, relit MPP, puis n'écrit que les matchs futurs dont le score conseillé diffère du score déjà saisi. Ces modes utilisent la même session Chromium persistante et le même verrou navigateur que le filet final pour éviter les ouvertures concurrentes.
 
 Fonctionnement:
 
-1. Le scheduler surveille les matchs proches du coup d'envoi.
-2. Dans la fenêtre T-10 min, il rafraîchit Polymarket et MPP.
-3. Il recalcule la meilleure recommandation selon la stratégie active.
-4. Il ouvre la session Chromium persistante MPP et remplit les deux champs du score exact.
-5. Il marque le match comme traité pour éviter une double saisie du filet final.
+1. À chaque sync Polymarket ou lecture MPP, le mode `dès dispo` remplit les scores vides exploitables.
+2. Toutes les heures, la passe horaire ajuste les scores déjà remplis si la recommandation a changé.
+3. Dans la fenêtre T-10 min, le filet final rafraîchit Polymarket et MPP.
+4. Il recalcule la meilleure recommandation selon la stratégie active.
+5. Il ouvre la session Chromium persistante MPP et remplit les deux champs du score exact.
+6. Il marque le match comme traité pour éviter une double saisie du filet final.
 
 Le bouton `Tester contrôle MPP` vérifie la correspondance match/inputs sans écrire.
 

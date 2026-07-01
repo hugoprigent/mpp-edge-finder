@@ -438,14 +438,21 @@ function StatusCard({ label, value, sub }: { label: string; value: string | numb
 
 function autoPlayLabel(status?: AppStatus | null): string {
   if (!status) return "off";
-  if (status.mppHourlyAutoPlay && status.mppAutoPlay) return `horaire + ${leadTimeLabel(status.mppAutoPlayLeadSeconds)}`;
-  if (status.mppHourlyAutoPlay) return "horaire";
-  if (status.mppAutoPlay) return leadTimeLabel(status.mppAutoPlayLeadSeconds);
-  return "off";
+  const modes = [
+    status.mppAvailableAutoPlay ? "dès dispo" : "",
+    status.mppHourlyAutoPlay ? "horaire" : "",
+    status.mppAutoPlay ? leadTimeLabel(status.mppAutoPlayLeadSeconds) : ""
+  ].filter(Boolean);
+  return modes.length ? modes.join(" + ") : "off";
 }
 
 function autoPlaySub(status?: AppStatus | null): string {
   if (!status) return "manuel";
+  if (status.mppAvailableAutoPlay) {
+    const mode = status.mppAvailableAutoPlayDryRun ? "dry-run" : "réel";
+    const hourly = status.mppHourlyAutoPlay ? ` | horaire ${status.mppHourlyAutoPlayIntervalMinutes} min` : "";
+    return `${mode} scores vides${hourly}`;
+  }
   if (status.mppHourlyAutoPlay) {
     return `${status.mppHourlyAutoPlayDryRun ? "dry-run" : "réel"} toutes les ${status.mppHourlyAutoPlayIntervalMinutes} min`;
   }

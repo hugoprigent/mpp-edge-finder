@@ -11,7 +11,7 @@ import { getHermesHealth, getHermesManifest, getHermesRecommendations, sendManua
 import { applyManualMppScore, applyMppRecommendation } from "./services/mppAutoPlayer.js";
 import { scrapeMpp, syncPolymarket, importMppText } from "./services/sync.js";
 import { formatRecommendationMessage, formatRecommendationPlainMessage, sendNtfy, sendTelegram } from "./services/notifications.js";
-import { startSchedulers } from "./services/scheduler.js";
+import { startSchedulers, triggerAvailableMppAutoPlay } from "./services/scheduler.js";
 
 const app = Fastify({ logger: true });
 const store = new Store();
@@ -110,6 +110,7 @@ app.get<{ Querystring: { window?: string } }>("/api/recommendations", async (req
 app.post("/api/sync/polymarket/run", async () => {
   const result = await syncPolymarket(store);
   broadcast("sync", result);
+  triggerAvailableMppAutoPlay(store, broadcast, "manual-polymarket");
   return result;
 });
 
@@ -123,6 +124,7 @@ app.post<{ Body: { text?: string } }>("/api/import/mpp-text", async (request) =>
 app.post("/api/scrape/mpp/run", async () => {
   const result = await scrapeMpp(store);
   broadcast("sync", result);
+  triggerAvailableMppAutoPlay(store, broadcast, "manual-mpp");
   return result;
 });
 

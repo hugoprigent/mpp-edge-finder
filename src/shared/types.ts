@@ -134,6 +134,8 @@ export type AppStatus = {
   mppAutoPlay: boolean;
   mppAutoPlayDryRun: boolean;
   mppAutoPlayLeadSeconds: number;
+  mppAvailableAutoPlay: boolean;
+  mppAvailableAutoPlayDryRun: boolean;
   mppHourlyAutoPlay: boolean;
   mppHourlyAutoPlayDryRun: boolean;
   mppHourlyAutoPlayIntervalMinutes: number;

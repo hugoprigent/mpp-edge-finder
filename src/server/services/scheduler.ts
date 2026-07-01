@@ -14,6 +14,7 @@ const NOTIFICATION_TOLERANCE_MS = 60_000;
 const AUTO_PLAY_TICK_MS = 20_000;
 
 let autoPlayRunning = false;
+let availableAutoPlayRunning = false;
 let hourlyAutoPlayRunning = false;
 
 export function startSchedulers(store: Store, broadcast: (event: string, payload: unknown) => void): void {
@@ -33,7 +34,10 @@ export function startSchedulers(store: Store, broadcast: (event: string, payload
 function schedulePolymarketSync(store: Store, broadcast: (event: string, payload: unknown) => void): void {
   setTimeout(() => {
     void syncPolymarket(store)
-      .then((result) => broadcast("sync", result))
+      .then((result) => {
+        broadcast("sync", result);
+        triggerAvailableMppAutoPlay(store, broadcast, "polymarket");
+      })
       .catch((error) => broadcast("error", { message: String(error?.message ?? error) }))
       .finally(() => schedulePolymarketSync(store, broadcast));
   }, nextPolymarketPollMs(store.getMatches())).unref();
@@ -47,6 +51,7 @@ function scheduleMppScrape(store: Store, broadcast: (event: string, payload: unk
       .then((result) => {
         store.setSetting("lastMppScrapeError", "");
         broadcast("sync", result);
+        triggerAvailableMppAutoPlay(store, broadcast, "mpp");
       })
       .catch((error) => {
         const message = readableScrapeError(error);
@@ -55,6 +60,13 @@ function scheduleMppScrape(store: Store, broadcast: (event: string, payload: unk
       })
       .finally(() => scheduleMppScrape(store, broadcast));
   }, delayMs).unref();
+}
+
+export function triggerAvailableMppAutoPlay(store: Store, broadcast: (event: string, payload: unknown) => void, source = "sync"): void {
+  if (!config.mppAvailableAutoPlay) return;
+  void autoPlayAvailableMatches(store, broadcast, source).catch((error) =>
+    broadcast("error", { source: "mpp-available-autoplay", trigger: source, message: String(error?.message ?? error) })
+  );
 }
 
 function scheduleHourlyMppAutoPlay(store: Store, broadcast: (event: string, payload: unknown) => void, delayMs = nextHourlyAutoPlayMs()): void {
@@ -145,6 +157,38 @@ export async function autoPlayUpcomingMatches(store: Store, broadcast: (event: s
   }
 }
 
+export async function autoPlayAvailableMatches(store: Store, broadcast: (event: string, payload: unknown) => void, source = "sync"): Promise<void> {
+  if (!config.mppAvailableAutoPlay || availableAutoPlayRunning) return;
+  availableAutoPlayRunning = true;
+  try {
+    const recs = buildRecommendations(
+      {
+        matches: store.getMatches(),
+        mppByMatch: store.latestMppSnapshots(),
+        marketByMatch: store.latestMarketSnapshots()
+      },
+      config.mppAvailableAutoPlayHorizonHours
+    );
+    const candidates = selectAvailableAutoPlayRecommendations(recs);
+    if (candidates.length === 0) return;
+
+    const results = await applyMppRecommendations(candidates, config.mppAvailableAutoPlayDryRun, Math.max(0, config.mppAvailableAutoPlayWriteDelayMs));
+    for (const result of results) broadcast("automation", result);
+    const ok = results.filter((result) => result.ok).length;
+    const storedSnapshots = storeAppliedMppSnapshots(store, candidates, results);
+    broadcast("automation", {
+      ok: ok === results.length,
+      dryRun: config.mppAvailableAutoPlayDryRun,
+      trigger: source,
+      message: `Scores disponibles MPP: ${ok}/${results.length} scores vides traités.`,
+      storedSnapshots,
+      updatedMatches: results.length
+    });
+  } finally {
+    availableAutoPlayRunning = false;
+  }
+}
+
 export async function autoPlayHourlyMatches(store: Store, broadcast: (event: string, payload: unknown) => void): Promise<void> {
   if (!config.mppHourlyAutoPlay || hourlyAutoPlayRunning) return;
   hourlyAutoPlayRunning = true;
@@ -205,6 +249,15 @@ export function selectHourlyAutoPlayRecommendations(recs: Recommendation[], nowM
     const kickoffMs = new Date(rec.match.kickoffUtc).getTime();
     if (!Number.isFinite(kickoffMs) || kickoffMs <= nowMs) return false;
     return rec.mpp.currentHomeScore !== rec.score.home || rec.mpp.currentAwayScore !== rec.score.away;
+  });
+}
+
+export function selectAvailableAutoPlayRecommendations(recs: Recommendation[], nowMs = Date.now()): Recommendation[] {
+  return recs.filter((rec) => {
+    if (rec.outcome === "needs-data" || !rec.score || !rec.mpp) return false;
+    const kickoffMs = new Date(rec.match.kickoffUtc).getTime();
+    if (!Number.isFinite(kickoffMs) || kickoffMs <= nowMs) return false;
+    return rec.mpp.currentHomeScore == null || rec.mpp.currentAwayScore == null;
   });
 }
 

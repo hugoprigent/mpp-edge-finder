@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Store } from "../src/server/store.js";
-import { nextMppPollMs, nextPolymarketPollMs, notifyUpcomingMatches, selectHourlyAutoPlayRecommendations } from "../src/server/services/scheduler.js";
+import { nextMppPollMs, nextPolymarketPollMs, notifyUpcomingMatches, selectAvailableAutoPlayRecommendations, selectHourlyAutoPlayRecommendations } from "../src/server/services/scheduler.js";
 import type { Recommendation } from "../src/shared/types.js";
 
 describe("scheduler", () => {
@@ -27,6 +27,16 @@ describe("scheduler", () => {
     const missing = { ...changed, match: { ...changed.match, id: "missing" }, outcome: "needs-data", score: undefined } as Recommendation;
 
     expect(selectHourlyAutoPlayRecommendations([changed, alreadyCurrent, past, missing], now).map((rec) => rec.match.id)).toEqual(["changed"]);
+  });
+
+  it("selects only future available MPP updates with an empty score", () => {
+    const now = Date.parse("2026-07-01T12:00:00.000Z");
+    const empty = recommendationForHourly("empty", "2026-07-01T18:00:00.000Z", null, null, 2, 1);
+    const partial = recommendationForHourly("partial", "2026-07-01T18:30:00.000Z", 2, null, 2, 1);
+    const changedButFilled = recommendationForHourly("changed", "2026-07-01T19:00:00.000Z", 0, 0, 2, 1);
+    const past = recommendationForHourly("past", "2026-07-01T11:59:00.000Z", null, null, 1, 0);
+
+    expect(selectAvailableAutoPlayRecommendations([empty, partial, changedButFilled, past], now).map((rec) => rec.match.id)).toEqual(["empty", "partial"]);
   });
 
   it("broadcasts one local T-10 alert without requiring Telegram", async () => {
@@ -80,7 +90,7 @@ describe("scheduler", () => {
   });
 });
 
-function recommendationForHourly(id: string, kickoffUtc: string, currentHome: number, currentAway: number, targetHome: number, targetAway: number): Recommendation {
+function recommendationForHourly(id: string, kickoffUtc: string, currentHome: number | null, currentAway: number | null, targetHome: number, targetAway: number): Recommendation {
   return {
     match: {
       id,

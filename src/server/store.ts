@@ -309,6 +309,8 @@ export class Store {
       mppAutoPlay: config.mppAutoPlay,
       mppAutoPlayDryRun: config.mppAutoPlayDryRun,
       mppAutoPlayLeadSeconds: config.mppAutoPlayLeadSeconds,
+      mppAvailableAutoPlay: config.mppAvailableAutoPlay,
+      mppAvailableAutoPlayDryRun: config.mppAvailableAutoPlayDryRun,
       mppHourlyAutoPlay: config.mppHourlyAutoPlay,
       mppHourlyAutoPlayDryRun: config.mppHourlyAutoPlayDryRun,
       mppHourlyAutoPlayIntervalMinutes: config.mppHourlyAutoPlayIntervalMinutes,
