@@ -119,11 +119,13 @@ describe("recommendMatch", () => {
     expect(rec.strategyScore).toBeGreaterThan(rec.outcomeAnalysis.home.attackScore);
   });
 
-  it("sorts actionable recommendations by strategy score before missing data", () => {
+  it("sorts recommendations by kickoff date while keeping the X2 by strategy score", () => {
     const soon = new Date(Date.now() + 36e5).toISOString();
+    const middle = new Date(Date.now() + 2 * 36e5).toISOString();
+    const later = new Date(Date.now() + 3 * 36e5).toISOString();
     const lowEdge = { ...match, id: "low", kickoffUtc: soon, homeTeam: "Japon", awayTeam: "Suède" };
-    const highEdge = { ...match, id: "high", kickoffUtc: soon, homeTeam: "Tunisie", awayTeam: "Pays-Bas" };
-    const missing = { ...match, id: "missing", kickoffUtc: soon, homeTeam: "France", awayTeam: "Norvège" };
+    const missing = { ...match, id: "missing", kickoffUtc: middle, homeTeam: "France", awayTeam: "Norvège" };
+    const highEdge = { ...match, id: "high", kickoffUtc: later, homeTeam: "Tunisie", awayTeam: "Pays-Bas" };
 
     const recs = buildRecommendations({
       matches: [lowEdge, missing, highEdge],
@@ -137,8 +139,8 @@ describe("recommendMatch", () => {
       }
     });
 
-    expect(recs.map((rec) => rec.match.id)).toEqual(["high", "low", "missing"]);
-    expect(recs[0].strategyScore).toBeGreaterThan(recs[1].strategyScore);
-    expect(recs[0].play.instruction).toContain("X2 sur ce match");
+    expect(recs.map((rec) => rec.match.id)).toEqual(["low", "missing", "high"]);
+    expect(recs[2].strategyScore).toBeGreaterThan(recs[0].strategyScore);
+    expect(recs[2].play.instruction).toContain("X2 sur ce match");
   });
 });

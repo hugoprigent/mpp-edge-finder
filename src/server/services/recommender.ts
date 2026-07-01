@@ -61,13 +61,16 @@ export function buildRecommendations(data: LatestData, windowHours = 96): Recomm
 }
 
 function sortRecommendations(a: Recommendation, b: Recommendation): number {
+  const kickoff = kickoffSort(a, b);
+  if (kickoff !== 0) return kickoff;
+
   const aMissing = a.outcome === "needs-data";
   const bMissing = b.outcome === "needs-data";
   if (aMissing !== bMissing) return aMissing ? 1 : -1;
   if (!aMissing && !bMissing) {
-    return b.strategyScore - a.strategyScore || b.edge - a.edge || b.totalEv - a.totalEv || kickoffSort(a, b);
+    return b.strategyScore - a.strategyScore || b.edge - a.edge || b.totalEv - a.totalEv;
   }
-  return kickoffSort(a, b);
+  return 0;
 }
 
 function kickoffSort(a: Recommendation, b: Recommendation): number {
