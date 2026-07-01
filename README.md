@@ -91,8 +91,8 @@ L'app peut saisir automatiquement le prono MPP recommandé juste avant la fermet
 ```bash
 MPP_AUTO_PLAY=true
 MPP_AUTO_PLAY_DRY_RUN=false
-MPP_AUTO_PLAY_LEAD_SECONDS=60
-MPP_AUTO_PLAY_WINDOW_SECONDS=45
+MPP_AUTO_PLAY_LEAD_SECONDS=600
+MPP_AUTO_PLAY_WINDOW_SECONDS=180
 ```
 
 Elle peut aussi faire une passe de mise à jour toutes les heures pour que MPP reste déjà aligné sur les dernières cotes Polymarket:
@@ -105,15 +105,15 @@ MPP_HOURLY_AUTO_PLAY_HORIZON_HOURS=168
 MPP_HOURLY_AUTO_PLAY_WRITE_DELAY_MS=2500
 ```
 
-La passe horaire synchronise Polymarket, relit MPP, puis n'écrit que les matchs futurs dont le score conseillé diffère du score déjà saisi. Elle utilise la même session Chromium persistante et le même verrou navigateur que le T-60 pour éviter les ouvertures concurrentes.
+La passe horaire synchronise Polymarket, relit MPP, puis n'écrit que les matchs futurs dont le score conseillé diffère du score déjà saisi. Elle utilise la même session Chromium persistante et le même verrou navigateur que le filet final pour éviter les ouvertures concurrentes.
 
 Fonctionnement:
 
 1. Le scheduler surveille les matchs proches du coup d'envoi.
-2. Dans la fenêtre T-60s, il rafraîchit Polymarket et MPP.
+2. Dans la fenêtre T-10 min, il rafraîchit Polymarket et MPP.
 3. Il recalcule la meilleure recommandation selon la stratégie active.
 4. Il ouvre la session Chromium persistante MPP et remplit les deux champs du score exact.
-5. Il marque le match comme traité pour éviter une double saisie T-60.
+5. Il marque le match comme traité pour éviter une double saisie du filet final.
 
 Le bouton `Tester contrôle MPP` vérifie la correspondance match/inputs sans écrire.
 

@@ -438,9 +438,9 @@ function StatusCard({ label, value, sub }: { label: string; value: string | numb
 
 function autoPlayLabel(status?: AppStatus | null): string {
   if (!status) return "off";
-  if (status.mppHourlyAutoPlay && status.mppAutoPlay) return "horaire + T-60";
+  if (status.mppHourlyAutoPlay && status.mppAutoPlay) return `horaire + ${leadTimeLabel(status.mppAutoPlayLeadSeconds)}`;
   if (status.mppHourlyAutoPlay) return "horaire";
-  if (status.mppAutoPlay) return "T-60";
+  if (status.mppAutoPlay) return leadTimeLabel(status.mppAutoPlayLeadSeconds);
   return "off";
 }
 
@@ -449,8 +449,13 @@ function autoPlaySub(status?: AppStatus | null): string {
   if (status.mppHourlyAutoPlay) {
     return `${status.mppHourlyAutoPlayDryRun ? "dry-run" : "réel"} toutes les ${status.mppHourlyAutoPlayIntervalMinutes} min`;
   }
-  if (status.mppAutoPlay) return `${status.mppAutoPlayDryRun ? "dry-run" : "réel"} T-${status.mppAutoPlayLeadSeconds}s`;
+  if (status.mppAutoPlay) return `${status.mppAutoPlayDryRun ? "dry-run" : "réel"} ${leadTimeLabel(status.mppAutoPlayLeadSeconds)}`;
   return "manuel";
+}
+
+function leadTimeLabel(seconds: number): string {
+  if (seconds >= 60 && seconds % 60 === 0) return `T-${seconds / 60} min`;
+  return `T-${seconds}s`;
 }
 
 function Badge({ value }: { value: string }) {
