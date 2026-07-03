@@ -42,4 +42,42 @@ describe("parsePolymarketEvent", () => {
     expect(event.pHome).toBeGreaterThan(event.pAway);
     expect(event.totals[0]).toMatchObject({ threshold: 2.5, pOver: 0.495, pUnder: 0.49 });
   });
+
+  it("matches aliased team names embedded in Polymarket questions", () => {
+    const [event] = parsePolymarketEvent({
+      title: "Argentina vs. Cabo Verde",
+      slug: "fwc-arg-cpv-2026-07-03",
+      startDate: "2026-07-03T22:00:00Z",
+      volume: 2614421,
+      markets: [
+        {
+          marketType: "drawable_outcome",
+          question: "Will Argentina win against Cabo Verde in the World Cup match scheduled for Jul 3, 2026?",
+          outcomes: "[\"No\",\"Yes\"]",
+          outcomePrices: "[\"0.8600\",\"0.8650\"]"
+        },
+        {
+          marketType: "drawable_outcome",
+          question: "Will the World Cup match Argentina vs Cabo Verde scheduled for Jul 3, 2026 end in a draw?",
+          outcomes: "[\"Yes\",\"No\"]",
+          outcomePrices: "[\"0.1050\",\"0.1100\"]"
+        },
+        {
+          marketType: "drawable_outcome",
+          question: "Will Cabo Verde win against Argentina in the World Cup match scheduled for Jul 3, 2026?",
+          outcomes: "[\"Yes\",\"No\"]",
+          outcomePrices: "[\"0.0350\",\"0.0400\"]"
+        }
+      ]
+    });
+
+    expect(event).toMatchObject({
+      homeTeam: "Argentina",
+      awayTeam: "Cabo Verde",
+      slug: "fwc-arg-cpv-2026-07-03",
+      pHome: 0.8607,
+      pDraw: 0.1045,
+      pAway: 0.0348
+    });
+  });
 });

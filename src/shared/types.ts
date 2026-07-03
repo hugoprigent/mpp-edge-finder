@@ -183,8 +183,18 @@ export type AppStatus = {
   marketSnapshots: number;
   mppResults: number;
   lastMppSync?: string | null;
+  lastMppScrapeAttempt?: string | null;
+  lastMppScrapeMessage?: string | null;
   lastPolymarketSync?: string | null;
+  lastPolymarketSyncAttempt?: string | null;
+  lastPolymarketSyncMessage?: string | null;
   lastMppScrapeError?: string | null;
+  lastAvailableAutoPlay?: string | null;
+  lastAvailableAutoPlayMessage?: string | null;
+  lastHourlyAutoPlay?: string | null;
+  lastHourlyAutoPlayMessage?: string | null;
+  lastT10AutoPlay?: string | null;
+  lastT10AutoPlayMessage?: string | null;
   telegramConfigured: boolean;
   ntfyConfigured: boolean;
   mppAutoScrape: boolean;

@@ -118,13 +118,13 @@ export function App() {
 
       <section className="statusGrid">
         <StatusCard label="Matchs suivis" value={status?.matches ?? 0} />
-        <StatusCard label="MPP" value={formatDate(status?.lastMppSync)} sub={status?.lastMppScrapeError ? "à vérifier" : "scrape auto"} />
-        <StatusCard label="Polymarket" value={formatDate(status?.lastPolymarketSync)} sub={status?.polymarketLeagueSlug ?? "fwc"} />
+        <StatusCard label="MPP" value={formatDate(status?.lastMppSync)} sub={status?.lastMppScrapeError ? "à vérifier" : compactStatus(status?.lastMppScrapeMessage) ?? "scrape auto"} />
+        <StatusCard label="Polymarket" value={formatDate(status?.lastPolymarketSync)} sub={compactStatus(status?.lastPolymarketSyncMessage) ?? status?.polymarketLeagueSlug ?? "fwc"} />
         <StatusCard label="Résultats" value={status?.mppResults ?? 0} sub={view === "backtest" && backtest ? `${backtest.playable} simulables` : "backtest dispo"} />
         <StatusCard
           label="Saisie auto"
           value={autoPlayLabel(status)}
-          sub={autoPlaySub(status)}
+          sub={lastAutomationSub(status) ?? autoPlaySub(status)}
         />
         <StatusCard label="Stratégie" value={status?.mppStrategyMode ?? "chase"} sub={status?.mppStrategyMode === "ev" ? "EV pure" : "remontée"} />
       </section>
@@ -762,6 +762,24 @@ function autoPlaySub(status?: AppStatus | null): string {
   }
   if (status.mppAutoPlay) return `${status.mppAutoPlayDryRun ? "dry-run" : "réel"} ${leadTimeLabel(status.mppAutoPlayLeadSeconds)}`;
   return "manuel";
+}
+
+function lastAutomationSub(status?: AppStatus | null): string | undefined {
+  if (!status) return undefined;
+  const items = [
+    { at: status.lastT10AutoPlay, message: status.lastT10AutoPlayMessage },
+    { at: status.lastHourlyAutoPlay, message: status.lastHourlyAutoPlayMessage },
+    { at: status.lastAvailableAutoPlay, message: status.lastAvailableAutoPlayMessage }
+  ]
+    .filter((item): item is { at: string; message: string } => Boolean(item.at && item.message))
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  const latest = items[0];
+  return latest ? `${formatDate(latest.at)} | ${compactStatus(latest.message)}` : undefined;
+}
+
+function compactStatus(value?: string | null): string | undefined {
+  if (!value) return undefined;
+  return value.length > 64 ? `${value.slice(0, 61)}...` : value;
 }
 
 function leadTimeLabel(seconds: number): string {

@@ -33,12 +33,20 @@ export function startSchedulers(store: Store, broadcast: (event: string, payload
 
 function schedulePolymarketSync(store: Store, broadcast: (event: string, payload: unknown) => void): void {
   setTimeout(() => {
+    store.setSetting("lastPolymarketSyncAttempt", new Date().toISOString());
     void syncPolymarket(store)
       .then((result) => {
+        store.setSetting("lastPolymarketSyncMessage", result.message);
+        console.info(`[scheduler] ${result.message}`);
         broadcast("sync", result);
         triggerAvailableMppAutoPlay(store, broadcast, "polymarket");
       })
-      .catch((error) => broadcast("error", { message: String(error?.message ?? error) }))
+      .catch((error) => {
+        const message = String(error?.message ?? error);
+        store.setSetting("lastPolymarketSyncMessage", `Erreur: ${message}`);
+        console.warn(`[scheduler] Polymarket: ${message}`);
+        broadcast("error", { source: "polymarket", message });
+      })
       .finally(() => schedulePolymarketSync(store, broadcast));
   }, nextPolymarketPollMs(store.getMatches())).unref();
 }
@@ -50,12 +58,16 @@ function scheduleMppScrape(store: Store, broadcast: (event: string, payload: unk
     void scrapeMpp(store)
       .then((result) => {
         store.setSetting("lastMppScrapeError", "");
+        store.setSetting("lastMppScrapeMessage", result.message);
+        console.info(`[scheduler] ${result.message}`);
         broadcast("sync", result);
         triggerAvailableMppAutoPlay(store, broadcast, "mpp");
       })
       .catch((error) => {
         const message = readableScrapeError(error);
         store.setSetting("lastMppScrapeError", message);
+        store.setSetting("lastMppScrapeMessage", `Erreur: ${message}`);
+        console.warn(`[scheduler] MPP: ${message}`);
         broadcast("error", { source: "mpp", message });
       })
       .finally(() => scheduleMppScrape(store, broadcast));
@@ -73,7 +85,11 @@ function scheduleHourlyMppAutoPlay(store: Store, broadcast: (event: string, payl
   if (!config.mppHourlyAutoPlay) return;
   setTimeout(() => {
     void autoPlayHourlyMatches(store, broadcast)
-      .catch((error) => broadcast("error", { source: "mpp-hourly-autoplay", message: String(error?.message ?? error) }))
+      .catch((error) => {
+        const message = String(error?.message ?? error);
+        recordAutomationStatus(store, "lastHourlyAutoPlay", `Erreur horaire MPP: ${message}`);
+        broadcast("error", { source: "mpp-hourly-autoplay", message });
+      })
       .finally(() => scheduleHourlyMppAutoPlay(store, broadcast));
   }, delayMs).unref();
 }
@@ -127,31 +143,58 @@ export async function autoPlayUpcomingMatches(store: Store, broadcast: (event: s
   const now = Date.now();
   const leadMs = config.mppAutoPlayLeadSeconds * 1000;
   const windowMs = config.mppAutoPlayWindowSeconds * 1000;
+  const type = `mpp-autoplay-${config.mppAutoPlayLeadSeconds}s`;
   const hasNearCandidate = store.getMatches().some((match) => {
     const delta = new Date(match.kickoffUtc).getTime() - now;
-    return delta >= 0 && delta <= leadMs + windowMs + 60_000;
+    return isAutoPlayWindow(delta, leadMs, windowMs) && !store.alreadyNotified(match.id, type);
   });
   if (!hasNearCandidate) return;
 
   autoPlayRunning = true;
   try {
-    await Promise.allSettled([syncPolymarket(store), scrapeMpp(store)]);
+    const attemptAt = new Date().toISOString();
+    store.setSetting("lastPolymarketSyncAttempt", attemptAt);
+    store.setSetting("lastMppScrapeAttempt", attemptAt);
+    const [marketResult, mppResult] = await Promise.allSettled([syncPolymarket(store), scrapeMpp(store)]);
+    if (marketResult.status === "fulfilled") {
+      store.setSetting("lastPolymarketSyncMessage", marketResult.value.message);
+      console.info(`[scheduler] ${marketResult.value.message}`);
+    } else {
+      store.setSetting("lastPolymarketSyncMessage", `Erreur T-10: ${String(marketResult.reason?.message ?? marketResult.reason)}`);
+    }
+    if (mppResult.status === "fulfilled") {
+      store.setSetting("lastMppScrapeError", "");
+      store.setSetting("lastMppScrapeMessage", mppResult.value.message);
+      console.info(`[scheduler] ${mppResult.value.message}`);
+    } else {
+      const message = readableScrapeError(mppResult.reason);
+      store.setSetting("lastMppScrapeError", message);
+      store.setSetting("lastMppScrapeMessage", `Erreur T-10: ${message}`);
+    }
     const recs = buildRecommendations({
       matches: store.getMatches(),
       mppByMatch: store.latestMppSnapshots(),
       marketByMatch: store.latestMarketSnapshots()
     });
 
+    let attempted = 0;
+    let ok = 0;
     for (const rec of recs) {
       if (rec.outcome === "needs-data" || !rec.score) continue;
       const delta = new Date(rec.match.kickoffUtc).getTime() - Date.now();
-      if (delta < 0 || Math.abs(delta - leadMs) > windowMs) continue;
-      const type = `mpp-autoplay-${config.mppAutoPlayLeadSeconds}s`;
+      if (!isAutoPlayWindow(delta, leadMs, windowMs)) continue;
       if (store.alreadyNotified(rec.match.id, type)) continue;
+      attempted += 1;
       const result = await applyMppRecommendation(rec, config.mppAutoPlayDryRun);
       broadcast("automation", result);
+      if (result.ok) ok += 1;
       if (result.ok && !result.dryRun) store.recordNotification(rec.match.id, type);
     }
+    recordAutomationStatus(
+      store,
+      "lastT10AutoPlay",
+      attempted > 0 ? `T-10 MPP: ${ok}/${attempted} score(s) traités.` : "T-10 MPP: aucun match exploitable après refresh."
+    );
   } finally {
     autoPlayRunning = false;
   }
@@ -170,17 +213,22 @@ export async function autoPlayAvailableMatches(store: Store, broadcast: (event: 
       config.mppAvailableAutoPlayHorizonHours
     );
     const candidates = selectAvailableAutoPlayRecommendations(recs);
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) {
+      recordAutomationStatus(store, "lastAvailableAutoPlay", `Scores disponibles MPP: aucun score vide à traiter (${source}).`, false);
+      return;
+    }
 
     const results = await applyMppRecommendations(candidates, config.mppAvailableAutoPlayDryRun, Math.max(0, config.mppAvailableAutoPlayWriteDelayMs));
     for (const result of results) broadcast("automation", result);
     const ok = results.filter((result) => result.ok).length;
     const storedSnapshots = storeAppliedMppSnapshots(store, candidates, results);
+    const message = `Scores disponibles MPP: ${ok}/${results.length} scores vides traités.`;
+    recordAutomationStatus(store, "lastAvailableAutoPlay", message);
     broadcast("automation", {
       ok: ok === results.length,
       dryRun: config.mppAvailableAutoPlayDryRun,
       trigger: source,
-      message: `Scores disponibles MPP: ${ok}/${results.length} scores vides traités.`,
+      message,
       storedSnapshots,
       updatedMatches: results.length
     });
@@ -193,7 +241,11 @@ export async function autoPlayHourlyMatches(store: Store, broadcast: (event: str
   if (!config.mppHourlyAutoPlay || hourlyAutoPlayRunning) return;
   hourlyAutoPlayRunning = true;
   try {
+    store.setSetting("lastHourlyAutoPlay", new Date().toISOString());
+    store.setSetting("lastPolymarketSyncAttempt", new Date().toISOString());
     const marketResult = await syncPolymarket(store);
+    store.setSetting("lastPolymarketSyncMessage", marketResult.message);
+    console.info(`[scheduler] ${marketResult.message}`);
     broadcast("sync", marketResult);
 
     store.setSetting("lastMppScrapeAttempt", new Date().toISOString());
@@ -201,9 +253,12 @@ export async function autoPlayHourlyMatches(store: Store, broadcast: (event: str
     try {
       mppResult = await scrapeMpp(store);
       store.setSetting("lastMppScrapeError", "");
+      store.setSetting("lastMppScrapeMessage", mppResult.message);
+      console.info(`[scheduler] ${mppResult.message}`);
     } catch (error) {
       const message = readableScrapeError(error);
       store.setSetting("lastMppScrapeError", message);
+      store.setSetting("lastMppScrapeMessage", `Erreur: ${message}`);
       throw error;
     }
     broadcast("sync", mppResult);
@@ -218,10 +273,12 @@ export async function autoPlayHourlyMatches(store: Store, broadcast: (event: str
     );
     const candidates = selectHourlyAutoPlayRecommendations(recs);
     if (candidates.length === 0) {
+      const message = "Mise à jour horaire MPP: aucun score à modifier.";
+      recordAutomationStatus(store, "lastHourlyAutoPlay", message);
       broadcast("automation", {
         ok: true,
         dryRun: config.mppHourlyAutoPlayDryRun,
-        message: "Mise à jour horaire MPP: aucun score à modifier.",
+        message,
         recommendations: recs.length
       });
       return;
@@ -231,10 +288,12 @@ export async function autoPlayHourlyMatches(store: Store, broadcast: (event: str
     for (const result of results) broadcast("automation", result);
     const ok = results.filter((result) => result.ok).length;
     const storedSnapshots = storeAppliedMppSnapshots(store, candidates, results);
+    const message = `Mise à jour horaire MPP: ${ok}/${results.length} scores traités.`;
+    recordAutomationStatus(store, "lastHourlyAutoPlay", message);
     broadcast("automation", {
       ok: ok === results.length,
       dryRun: config.mppHourlyAutoPlayDryRun,
-      message: `Mise à jour horaire MPP: ${ok}/${results.length} scores traités.`,
+      message,
       storedSnapshots,
       updatedMatches: results.length
     });
@@ -307,6 +366,16 @@ export function nextMppPollMs(matches: Pick<Match, "kickoffUtc">[], nowMs = Date
     return delta >= -30 * 60_000 && delta <= NEAR_KICKOFF_WINDOW_MS;
   });
   return hasNearKickoff ? Math.min(baseMs, fastMs) : baseMs;
+}
+
+export function isAutoPlayWindow(deltaMs: number, leadMs: number, windowMs: number): boolean {
+  return deltaMs >= 0 && deltaMs <= leadMs && deltaMs >= leadMs - windowMs;
+}
+
+function recordAutomationStatus(store: Store, key: string, message: string, log = true): void {
+  store.setSetting(key, new Date().toISOString());
+  store.setSetting(`${key}Message`, message);
+  if (log) console.info(`[scheduler] ${message}`);
 }
 
 function notificationPayload(rec: Recommendation, type: string, telegramSent: boolean) {

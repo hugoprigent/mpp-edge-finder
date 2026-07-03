@@ -154,6 +154,10 @@ button:disabled {
   font-size: 24px;
 }
 
+.statusCard small {
+  overflow-wrap: anywhere;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

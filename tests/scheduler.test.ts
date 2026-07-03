@@ -3,7 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Store } from "../src/server/store.js";
-import { nextMppPollMs, nextPolymarketPollMs, notifyUpcomingMatches, selectAvailableAutoPlayRecommendations, selectHourlyAutoPlayRecommendations } from "../src/server/services/scheduler.js";
+import {
+  isAutoPlayWindow,
+  nextMppPollMs,
+  nextPolymarketPollMs,
+  notifyUpcomingMatches,
+  selectAvailableAutoPlayRecommendations,
+  selectHourlyAutoPlayRecommendations
+} from "../src/server/services/scheduler.js";
 import type { Recommendation } from "../src/shared/types.js";
 
 describe("scheduler", () => {
@@ -37,6 +44,17 @@ describe("scheduler", () => {
     const past = recommendationForHourly("past", "2026-07-01T11:59:00.000Z", null, null, 1, 0);
 
     expect(selectAvailableAutoPlayRecommendations([empty, partial, changedButFilled, past], now).map((rec) => rec.match.id)).toEqual(["empty", "partial"]);
+  });
+
+  it("opens the final MPP autoplay window only after the lead time", () => {
+    const leadMs = 10 * 60_000;
+    const windowMs = 3 * 60_000;
+
+    expect(isAutoPlayWindow(leadMs + 1, leadMs, windowMs)).toBe(false);
+    expect(isAutoPlayWindow(leadMs, leadMs, windowMs)).toBe(true);
+    expect(isAutoPlayWindow(leadMs - 90_000, leadMs, windowMs)).toBe(true);
+    expect(isAutoPlayWindow(leadMs - windowMs - 1, leadMs, windowMs)).toBe(false);
+    expect(isAutoPlayWindow(-1, leadMs, windowMs)).toBe(false);
   });
 
   it("broadcasts one local T-10 alert without requiring Telegram", async () => {

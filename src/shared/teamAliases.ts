@@ -85,7 +85,22 @@ export function teamKey(team: string): string {
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .replace(/\s+/g, " ");
-  return explicitAliases[key] ?? key;
+  return explicitAliases[key] ?? replaceEmbeddedAliases(key);
+}
+
+function replaceEmbeddedAliases(value: string): string {
+  let normalized = value;
+  const aliases = Object.entries(explicitAliases)
+    .filter(([alias, canonical]) => alias !== canonical)
+    .sort((a, b) => b[0].length - a[0].length);
+  for (const [alias, canonical] of aliases) {
+    normalized = normalized.replace(new RegExp(`(^| )${escapeRegex(alias)}(?= |$)`, "g"), `$1${canonical}`);
+  }
+  return normalized;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function slugify(value: string): string {
