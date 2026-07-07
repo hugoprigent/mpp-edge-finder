@@ -27,6 +27,7 @@ async function scrapeMppDataWithPlaywrightUnlocked(): Promise<ScrapedMppData> {
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto("https://mpp.football/", { waitUntil: "domcontentloaded", timeout: 45_000 });
     await page.waitForTimeout(4_000);
+    await ensureMppLoggedIn(page);
     const apiData = await tryScrapeMppApi(page).catch(() => ({ matches: [], results: [] }));
     if (apiData.matches.length > 0) return { ...apiData, rawSource: "api" };
 
@@ -41,6 +42,36 @@ async function scrapeMppDataWithPlaywrightUnlocked(): Promise<ScrapedMppData> {
   } finally {
     await context.close();
   }
+}
+
+export async function ensureMppLoggedIn(page: import("playwright").Page): Promise<boolean> {
+  if (await hasMppSession(page)) return true;
+  if (!config.mppLoginEmail || !config.mppLoginPassword) return false;
+
+  const loginLink = page.getByText("Se connecter", { exact: true });
+  if (await loginLink.count()) {
+    await loginLink.click({ timeout: 10_000 }).catch(() => undefined);
+    await page.waitForTimeout(3_000);
+  }
+
+  const emailInput = page.locator("#username,input[name='username'],input[autocomplete='email']").first();
+  const passwordInput = page.locator("#password,input[name='password'],input[type='password']").first();
+  if (!(await emailInput.count()) || !(await passwordInput.count())) return false;
+
+  await emailInput.fill(config.mppLoginEmail);
+  await passwordInput.fill(config.mppLoginPassword);
+  await page.getByRole("button", { name: /^Se connecter$/ }).click({ timeout: 10_000 });
+  await page.waitForLoadState("domcontentloaded", { timeout: 45_000 }).catch(() => undefined);
+  await page.waitForURL(/mpp\.football/, { timeout: 45_000 }).catch(() => undefined);
+  await page.waitForTimeout(5_000);
+  return hasMppSession(page);
+}
+
+async function hasMppSession(page: import("playwright").Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const text = document.body.innerText || "";
+    return text.includes("Mes Pronos") && !text.includes("Adresse e-mail");
+  });
 }
 
 async function tryScrapeMppApi(page: import("playwright").Page): Promise<ParsedMppApiData> {

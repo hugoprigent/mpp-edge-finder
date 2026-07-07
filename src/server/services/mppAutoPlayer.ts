@@ -2,7 +2,7 @@ import { config } from "../config.js";
 import { hoursBetween } from "../utils.js";
 import { teamsMatch } from "../../shared/teamAliases.js";
 import { parseMppTokens } from "./mppTextParser.js";
-import { extractVisibleTokens } from "./mppScraper.js";
+import { ensureMppLoggedIn, extractVisibleTokens } from "./mppScraper.js";
 import { withMppBrowserLock } from "./mppBrowserLock.js";
 import type { Match, Recommendation } from "../../shared/types.js";
 
@@ -96,6 +96,7 @@ async function fillMppScores(inputs: MppScoreInput[], writeDelayMs = 0): Promise
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto("https://mpp.football/", { waitUntil: "domcontentloaded", timeout: 45_000 });
     await page.waitForTimeout(4_000);
+    await ensureMppLoggedIn(page);
 
     const tokens = await extractVisibleTokens(page);
     const mppMatches = parseMppTokens(tokens);

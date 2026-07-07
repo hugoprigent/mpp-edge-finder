@@ -130,4 +130,59 @@ describe("parseMppTokens", () => {
     });
     expect(matches[0].kickoffUtc).toBe("2026-07-01T01:00:00.000Z");
   });
+
+  it("extracts quarter-final matches labelled 1/4 de finale", () => {
+    const matches = parseMppTokens([
+      t("Jeudi 9 juillet"),
+      t("1"),
+      t("/"),
+      t("1"),
+      t("France"),
+      t("1/4 de finale"),
+      t("-"),
+      t("20h00"),
+      input("3"),
+      input("1"),
+      t("54"),
+      t("92%"),
+      t("127"),
+      t("4%"),
+      t("150"),
+      t("4%"),
+      t("Maroc"),
+      t("Vendredi 10 juillet"),
+      t("0"),
+      t("/"),
+      t("1"),
+      t("Espagne"),
+      t("1/4 de finale"),
+      t("-"),
+      t("19h00"),
+      input(""),
+      input(""),
+      t("60"),
+      t("0%"),
+      t("125"),
+      t("0%"),
+      t("145"),
+      t("0%"),
+      t("Belgique")
+    ]);
+
+    expect(matches).toHaveLength(2);
+    expect(matches[0]).toMatchObject({
+      homeTeam: "France",
+      awayTeam: "Maroc",
+      phase: "1/4 de finale",
+      scope: "120min",
+      currentHomeScore: 3,
+      currentAwayScore: 1
+    });
+    expect(matches[1]).toMatchObject({
+      homeTeam: "Espagne",
+      awayTeam: "Belgique",
+      currentHomeScore: null,
+      currentAwayScore: null
+    });
+  });
 });

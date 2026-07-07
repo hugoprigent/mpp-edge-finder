@@ -41,7 +41,7 @@ const monthIndex: Record<string, number> = {
 const dateRegex = /^(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+(\d{1,2})\s+([a-zéûûôîïàèù]+)/i;
 const rankRegex = /^\d+e$/i;
 const timeRegex = /^(\d{1,2})h(\d{2})$/;
-const phaseRegex = /^(J\.\d+|1\/16 de finale|1\/8 de finale|quart|demi|finale|petite finale)/i;
+const phaseRegex = /^(J\.\d+|1\/16 de finale|1\/8 de finale|1\/4 de finale|quart|demi(?:-finale)?|finale|petite finale)/i;
 
 export function parseMppImport(input: string): ParsedMppMatch[] {
   const tokens = coerceTokens(input);

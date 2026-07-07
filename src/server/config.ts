@@ -36,6 +36,8 @@ export const config = {
   mppChampionshipId: numberEnv("MPP_CHAMPIONSHIP_ID", 8),
   mppYear: numberEnv("MPP_YEAR", 2026),
   mppLocalUtcOffsetHours: numberEnv("MPP_LOCAL_UTC_OFFSET_HOURS", 0),
+  mppLoginEmail: process.env.MPP_LOGIN_EMAIL || "",
+  mppLoginPassword: process.env.MPP_LOGIN_PASSWORD || "",
   mppProfileDir: path.resolve(root, process.env.MPP_PROFILE_DIR || "./data/mpp-chrome-profile"),
   mppHeadless: boolEnv("MPP_HEADLESS", false),
   mppAutoScrape: boolEnv("MPP_AUTO_SCRAPE", true),
